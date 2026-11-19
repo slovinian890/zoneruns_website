@@ -846,7 +846,6 @@ section[id] { scroll-margin-top: 76px; }
 .acct__card-head { display: flex; justify-content: space-between; gap: 12px; font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--faint-2); }
 .acct__card-head span:first-child { color: var(--text); }
 .acct__empty { color: var(--muted); font-size: 14.5px; line-height: 1.6; }
-.acct__map svg { display: block; width: 100%; height: auto; border-radius: 3px; aspect-ratio: 1.4; }
 .acct__map .route { stroke-width: 2.4; }
 .acct__map-cap { display: grid; gap: 2px; margin-top: 12px; }
 .acct__map-cap b { font-family: var(--f-serif); font-weight: 420; font-size: 1.25rem; color: var(--text); letter-spacing: -0.02em; }
@@ -950,6 +949,33 @@ body[data-chapter]:not([data-chapter="0"]) .companion { opacity: 1; transform: n
 @media (max-width: 960px) { .world { opacity: 0.42; } }
 @media (max-width: 640px) { .sec-label { white-space: normal; flex-wrap: wrap; gap: 6px 16px; } }
 @media (max-width: 640px) { .interlude { min-height: 58vh; } }
+
+
+/* Real map in the account card */
+.seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--hair-2); border-radius: 6px; }
+.seg button { padding: 6px 11px; border-radius: 4px; font-family: var(--f-mono); font-weight: 500; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); transition: background-color 0.25s, color 0.25s; }
+.seg button:hover { color: var(--text); }
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+.acct__mapview { position: relative; }
+.acct__attrib { position: absolute; right: 6px; bottom: 6px; z-index: 2; margin: 0; padding: 2px 7px; border-radius: 3px; background: rgba(10, 13, 7, 0.72); font-family: var(--f-mono); font-size: 9px; letter-spacing: 0.04em; color: rgba(236, 234, 214, 0.6); }
+.acct__attrib a { text-decoration: underline; text-underline-offset: 2px; }
+.acct__attrib a:hover { color: var(--text); }
+.acct__map .hx:not(.is-mine):not(.is-rival):not(.is-clan) { stroke: rgba(236, 234, 214, 0.17); }
+
+
+/* MapLibre map (same stack and style as the app) */
+.acct__gl { width: 100%; height: clamp(340px, 44vw, 500px); border-radius: 3px; overflow: hidden; background: #0E120A; }
+.acct__map-note { margin: 0 0 10px; padding: 14px 16px; border: 1px dashed var(--hair-2); border-radius: var(--r); font-size: 14px; line-height: 1.55; color: var(--muted); }
+.acct__map-note[hidden] { display: none; }
+.maplibregl-ctrl-attrib { background: rgba(10, 13, 7, 0.72) !important; color: rgba(236, 234, 214, 0.6) !important; font-family: var(--f-mono); font-size: 9px !important; }
+.maplibregl-ctrl-attrib a { color: inherit !important; text-decoration: underline; }
+.maplibregl-ctrl-attrib-button { filter: invert(1); }
+.maplibregl-cooperative-gesture-screen { font-family: var(--f-sans); font-size: 14px; }
+.acct__zoom { position: absolute; left: 8px; top: 8px; z-index: 2; display: grid; border: 1px solid var(--hair-2); border-radius: 6px; overflow: hidden; background: rgba(10, 13, 7, 0.8); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.acct__zoom button { width: 34px; height: 34px; font-family: var(--f-mono); font-size: 17px; line-height: 1; color: var(--text); transition: background-color 0.2s, color 0.2s; }
+.acct__zoom button + button { border-top: 1px solid var(--hair-2); }
+.acct__zoom button:hover:not(:disabled) { background: var(--lime); color: var(--on-lime); }
+.acct__zoom button:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* ───────── Reduced motion ───────── */
 @media (prefers-reduced-motion: reduce) {

@@ -221,7 +221,7 @@
   /* ───────────── Auth state ───────────── */
   function onAuth(event, sess) {
     session = sess;
-    if (!sess) { loaded = { uid: null, at: 0 }; section.hidden = true; $('#acctBody').replaceChildren(); resetChip(); return; }
+    if (!sess) { loaded = { uid: null, at: 0 }; dropMap(); section.hidden = true; $('#acctBody').replaceChildren(); resetChip(); return; }
     if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return;
     if (loaded.uid === sess.user.id && Date.now() - loaded.at < 60000) return;   // SIGNED_IN also fires on tab refocus
     load();
@@ -374,9 +374,123 @@
         }))
       : empty('No coin activity yet.'));
 
-    const mapHost = h('div', { class: 'acct__map' }, empty('Loading your last claim…'));
-    const mapCard = card('Last claim', 'Live hex map', mapHost,
-      h('ul', { class: 'legend legend--inline' }, [['mine', 'You'], ['rival', 'Rival'], ['clan', 'Clan'], ['neutral', 'Neutral']].map(([c, l]) => h('li', {}, h('i', { class: `sw sw--${c}` }), l))));
+    dropMap();
+    const glEl = h('div', { class: 'acct__gl', role: 'region', 'aria-label': 'Interactive map of your hexes' });
+    const zIn = h('button', { type: 'button', 'aria-label': 'Zoom in', text: '+' }), zOut = h('button', { type: 'button', 'aria-label': 'Zoom out', text: '−' });
+    const note = h('p', { class: 'acct__map-note', hidden: true }), capB = h('b'), capS = h('span');
+    const mapHost = h('div', { class: 'acct__map' }, h('div', { class: 'acct__mapview' }, glEl, h('div', { class: 'acct__zoom' }, zIn, zOut)), note, h('p', { class: 'acct__map-cap' }, capB, capS));
+    const btnRun = h('button', { type: 'button', 'aria-pressed': 'true', text: 'Last claim' });
+    const btnHere = h('button', { type: 'button', 'aria-pressed': 'false', text: 'My location' });
+    const mapCard = h('article', { class: 'acct__card' },
+      h('header', { class: 'acct__card-head' }, h('span', { text: 'Map' }), h('div', { class: 'seg', role: 'group', 'aria-label': 'Map view' }, btnRun, btnHere)),
+      mapHost,
+      h('ul', { class: 'legend legend--inline' }, [['mine', 'You'], ['rival', 'Others'], ['clan', 'Clan'], ['neutral', 'Neutral']].map(([c, l]) => h('li', {}, h('i', { class: `sw sw--${c}` }), l))));
+
+    const mv = { kind: 'run', title: '', sub: '', mine: 0, apply: null };
+    let routeP = null, hexTimer = 0, hexToken = 0, viewToken = 0, mapP = null;
+    const setNote = (text) => { note.textContent = text || ''; note.hidden = !text; };
+    const getRoute = () => routeP || (routeP = (async () => {
+      const latest = (d.runs || [])[0];
+      if (!latest) return null;
+      const { data: row } = await client.from('runs').select('route_data,title,run_date').eq('id', latest.id).maybeSingle();
+      const coords = ((row && row.route_data && row.route_data.coordinates) || []).filter((q) => Number.isFinite(q.latitude) && Number.isFinite(q.longitude));
+      if (coords.length < 2) return { latest, row, coords: [] };
+      let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+      coords.forEach((q) => { minLat = Math.min(minLat, q.latitude); maxLat = Math.max(maxLat, q.latitude); minLng = Math.min(minLng, q.longitude); maxLng = Math.max(maxLng, q.longitude); });
+      return { latest, row, coords, bbox: [[minLng, minLat], [maxLng, maxLat]], center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2] };
+    })());
+
+    const updateCaption = (map) => {
+      const z = map.getZoom(), scale = 2 ** (z - APP_ZOOM);
+      capB.textContent = mv.title;
+      capS.textContent = [mv.sub, mv.mine ? `${mv.mine} of your hexes in view` : 'none of your hexes in view', Math.abs(z - APP_ZOOM) < 0.05 ? 'app scale' : `${scale.toFixed(1)}× app scale`].filter(Boolean).join(' · ');
+      zIn.disabled = z >= MAX_Z - 0.01; zOut.disabled = z <= MIN_Z + 0.01;
+    };
+    const refreshHexes = (map) => {
+      clearTimeout(hexTimer);
+      hexTimer = setTimeout(async () => {
+        if (map !== activeMap || map.getZoom() < MIN_Z - 0.01) return;
+        const my = ++hexToken, b = map.getBounds();
+        let rows;
+        try { rows = await fetchHexes(client, { south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() }); }
+        catch (e) { if (my === hexToken && map === activeMap) setNote('Couldn’t load the hexes for this area. Pan the map or press Refresh to try again.'); return; }
+        if (my !== hexToken || map !== activeMap) return;
+        setNote('');
+        const { fc, mine } = hexCollection(rows, d.profile || {});
+        map.getSource('hexes').setData(fc); glEl.dataset.hexes = String(fc.features.length); mv.mine = mine; updateCaption(map);
+      }, 220);
+    };
+    const ensureMap = (center) => mapP || (mapP = (async () => {
+      const ml = await loadMaplibre();
+      const map = new ml.Map({
+        container: glEl, style: MAP_STYLE, center, zoom: APP_ZOOM, minZoom: MIN_Z, maxZoom: MAX_Z,
+        attributionControl: false, cooperativeGestures: true, dragRotate: false, pitchWithRotate: false,
+      });
+      map.touchZoomRotate.disableRotation();
+      map.addControl(new ml.AttributionControl({ compact: true, customAttribution: '© OpenFreeMap © OpenStreetMap contributors' }));
+      map.on('styleimagemissing', (e) => { if (!map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }); });   // the style references a few sprites we don't need
+      activeMap = map; glEl.__map = map;
+      await new Promise((ok, no) => { map.once('load', ok); map.once('error', (e) => { if (!map.loaded()) no(e && e.error); }); });
+      addMapLayers(map);
+      if (glEl.clientWidth < 600) { const a = glEl.querySelector('.maplibregl-ctrl-attrib'); if (a) a.classList.remove('maplibregl-compact-show'); }   // small screens: credit starts collapsed behind the (i)
+      map.on('moveend', () => refreshHexes(map));
+      map.on('resize', () => refreshHexes(map));
+      if ('ResizeObserver' in window) new ResizeObserver(() => map.resize()).observe(glEl);
+      map.on('zoom', () => updateCaption(map));
+      return map;
+    })().catch((e) => { mapP = null; throw e; }));
+    zIn.addEventListener('click', () => activeMap && activeMap.zoomIn({ duration: 250 }));
+    zOut.addEventListener('click', () => activeMap && activeMap.zoomOut({ duration: 250 }));
+
+    async function showMap(kind) {
+      const my = ++viewToken, here = kind === 'here';
+      mv.kind = kind; mv.mine = 0;
+      btnRun.setAttribute('aria-pressed', String(!here)); btnHere.setAttribute('aria-pressed', String(here));
+      setNote(here ? 'Finding you… allow location access when your browser asks.' : '');
+      try {
+        let center, apply;
+        if (here) {
+          if (!navigator.geolocation) { setNote('Your browser can’t share its location.'); return; }
+          const pos = await new Promise((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }));
+          if (my !== viewToken) return;
+          const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+          center = [lng, lat];
+          mv.title = 'You are here'; mv.sub = accuracy ? `±${Math.round(accuracy)} m` : '';
+          apply = (map) => {
+            map.getSource('route').setData(EMPTY);
+            map.getSource('you').setData({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: center }, properties: {} }, ...(accuracy && accuracy < 400 ? [circlePoly(lat, lng, accuracy)] : [])] });
+          };
+        } else {
+          const route = await getRoute();
+          if (my !== viewToken) return;
+          if (!route) { setNote('Close a loop in the app and your claim appears here.'); return; }
+          if (!route.coords.length) { setNote('Your latest run has no saved route yet.'); return; }
+          center = route.center;
+          mv.title = (route.row && route.row.title) || route.latest.title || 'Latest run';
+          mv.sub = [fmtDay(parseDay(route.latest.run_date)), `${num(route.latest.distance_km).toFixed(2)} km`].join(' · ');
+          const step = Math.max(1, Math.floor(route.coords.length / 600));
+          const line = route.coords.filter((_, i) => i % step === 0 || i === route.coords.length - 1).map((q) => [q.longitude, q.latitude]);
+          apply = (map) => {
+            map.getSource('you').setData(EMPTY);
+            map.getSource('route').setData({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: line }, properties: {} }, { type: 'Feature', geometry: { type: 'Point', coordinates: line[0] }, properties: {} }] });
+          };
+        }
+        const map = await ensureMap(center);
+        if (my !== viewToken) return;
+        apply(map);
+        map.jumpTo({ center, zoom: APP_ZOOM });
+        setNote('');
+        updateCaption(map); refreshHexes(map);
+      } catch (e) {
+        if (my !== viewToken) return;
+        const denied = e && e.code === 1;
+        setNote(denied ? 'Location access was blocked. Allow it for this site in your browser settings to see where you are.'
+          : here && e && e.code ? 'Couldn’t get your location. Try again outdoors or with Wi-Fi on.'
+          : 'Couldn’t draw the interactive map here — your browser may have WebGL turned off.');
+      }
+    }
+    btnRun.addEventListener('click', () => showMap('run'));
+    btnHere.addEventListener('click', () => showMap('here'));
 
     body.replaceChildren(...[
       head, stat, goalRow,
@@ -386,67 +500,109 @@
       h('p', { class: 'acct__foot', text: 'Run in the app and it all updates here — territory, coins and hero forms are the same data.' }),
     ].filter(Boolean));
 
-    drawLastClaim(client, mapHost, d);
+    showMap('run');
   };
 
-  /* ───────────── Last-claim hex map (latest run's route + the hexes around it) ───────────── */
-  const KLAT = 110540, HEX_R = 43.2, ASPECT = 1.4;
-  const drawLastClaim = async (client, host, d) => {
-    try {
-      const latest = (d.runs || [])[0];
-      if (!latest) { host.replaceChildren(empty('Close a loop in the app and your claim appears here.')); return; }
-      const { data: row } = await client.from('runs').select('route_data,title,run_date').eq('id', latest.id).maybeSingle();
-      const coords = ((row && row.route_data && row.route_data.coordinates) || []).filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
-      if (coords.length < 2) { host.replaceChildren(empty('Your latest run has no saved route yet.')); return; }
+  /* ───────────── Real map: MapLibre + OpenFreeMap — the same stack and style as the app ─────────────
+     The app runs Leaflet (256 px tiles) at zoom 16 on top of maplibre-gl 4.7.1 (512 px tiles); that is MapLibre
+     zoom 15, so hexes here are exactly the app's size on screen. As in the app, hexes are loaded for whatever
+     is in view, defense numbers appear at the closest zoom, and bounties show as amber tags. */
+  const ML = { js: 'assets/vendor/maplibre-gl-csp-4.7.1.js', css: 'assets/vendor/maplibre-gl-4.7.1.css', worker: 'assets/vendor/maplibre-gl-csp-worker-4.7.1.js' };
+  const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
+  const APP_ZOOM = 15, MIN_Z = 14, MAX_Z = 17, LABEL_Z = 17;
+  let mlPromise = null, activeMap = null;
+  const loadMaplibre = () => mlPromise || (mlPromise = new Promise((resolve, reject) => {
+    if (window.maplibregl) return resolve(window.maplibregl);
+    const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = ML.css; document.head.appendChild(link);
+    const el = document.createElement('script'); el.src = ML.js; el.async = true;
+    el.onload = () => { window.maplibregl.setWorkerUrl(ML.worker); resolve(window.maplibregl); };
+    el.onerror = () => { mlPromise = null; reject(new Error('map library failed to load')); };
+    document.head.appendChild(el);
+  }));
+  const dropMap = () => { if (activeMap) { try { activeMap.remove(); } catch { /* already gone */ } activeMap = null; } };
 
-      let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
-      coords.forEach((p) => { minLat = Math.min(minLat, p.latitude); maxLat = Math.max(maxLat, p.latitude); minLng = Math.min(minLng, p.longitude); maxLng = Math.max(maxLng, p.longitude); });
-      const cLat = (minLat + maxLat) / 2, cLng = (minLng + maxLng) / 2, kx = 111320 * Math.cos((cLat * Math.PI) / 180);
-      let w = Math.max((maxLng - minLng) * kx * 1.3, 520), hh = Math.max((maxLat - minLat) * KLAT * 1.3, 520 / ASPECT);
-      if (w / hh > ASPECT) hh = w / ASPECT; else w = hh * ASPECT;
-      if (w > 2400) { w = 2400; hh = w / ASPECT; }                     // keep the hex query small
-      const f = { minLat: cLat - hh / 2 / KLAT, maxLat: cLat + hh / 2 / KLAT, minLng: cLng - w / 2 / kx, maxLng: cLng + w / 2 / kx };
-      const P = (lat, lng) => [(lng - f.minLng) * kx, (f.maxLat - lat) * KLAT];
+  const EMPTY = { type: 'FeatureCollection', features: [] };
+  const colorOk = (c) => (typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : null);
+  const lvFrac = ['/', ['-', ['to-number', ['get', 'lv']], 1], 9];
+  const kindIs = (k) => ['==', ['get', 'k'], k];
 
-      const { data: hexes } = await client.rpc('get_hexes_in_bounds', { min_lat: f.minLat, min_lng: f.minLng, max_lat: f.maxLat, max_lng: f.maxLng });
-      const me = d.profile || {};
-      const svg = s('svg', { viewBox: `0 0 ${w.toFixed(0)} ${hh.toFixed(0)}`, role: 'img', 'aria-label': 'Hex map around your latest run' });
-      s('rect', { width: w, height: hh, fill: '#0E120A' }, svg);
-      const gHex = s('g', {}, svg), gLbl = s('g', {}, svg);
-      const rows = Array.isArray(hexes) ? hexes : [];
-      const ownedOnly = rows.length > 1400;
-      let mine = 0;
-      rows.forEach((r) => {
-        let g; try { g = JSON.parse(r.geojson); } catch { return; }
-        g = (g && g.geometry) || g;
-        const ring = g && (g.type === 'Polygon' ? g.coordinates[0] : g.type === 'MultiPolygon' ? g.coordinates[0][0] : null);
-        if (!ring) return;
-        const ally = r.user_id && (r.owner_group_id ? r.owner_group_id === me.active_group_id : r.user_id === me.id);
-        const kind = ally ? 'mine' : r.owner_group_id ? 'clan' : r.user_id ? 'rival' : null;
-        if (!kind && ownedOnly) return;
-        if (ally) mine += 1;
-        const pts = ring.map(([lng, lat]) => P(lat, lng));
-        const poly = s('polygon', { class: `hx${kind ? ` is-${kind}` : ''}`, points: pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' '), 'vector-effect': 'non-scaling-stroke' }, gHex);
-        if (kind) {
-          const lvl = num(r.level) || 1;
-          poly.style.setProperty('--fo', (0.18 + 0.7 * ((lvl - 1) / 9)).toFixed(3));
-          const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
-          const t = s('text', { class: 'lv is-on', x: cx.toFixed(1), y: cy.toFixed(1), 'font-size': (HEX_R * 0.4).toFixed(1) }, gLbl);
-          t.textContent = String(lvl);
-        }
-      });
-      const step = Math.max(1, Math.floor(coords.length / 500));
-      const line = coords.filter((_, i) => i % step === 0 || i === coords.length - 1).map((p, i) => { const q = P(p.latitude, p.longitude); return `${i ? 'L' : 'M'}${q[0].toFixed(1)} ${q[1].toFixed(1)}`; }).join('');
-      s('path', { class: 'route', d: line, 'vector-effect': 'non-scaling-stroke' }, svg);
-      const st = P(coords[0].latitude, coords[0].longitude);
-      s('circle', { class: 'start-ring', cx: st[0].toFixed(1), cy: st[1].toFixed(1), r: 9 }, svg);
+  const addMapLayers = (map) => {
+    ['hexes', 'route', 'you'].forEach((id) => map.addSource(id, { type: 'geojson', data: EMPTY }));
+    const L = (o) => map.addLayer(o);
+    // everyone else first …
+    L({ id: 'hx-n', type: 'line', source: 'hexes', filter: kindIs('n'), paint: { 'line-color': 'rgba(236,234,214,0.2)', 'line-width': 1 } });
+    L({ id: 'hx-o-fill', type: 'fill', source: 'hexes', filter: kindIs('o'), paint: { 'fill-color': ['get', 'col'], 'fill-opacity': ['+', 0.1, ['*', 0.3, lvFrac]] } });
+    L({ id: 'hx-o-line', type: 'line', source: 'hexes', filter: kindIs('o'), paint: { 'line-color': ['get', 'col'], 'line-width': 1.1, 'line-opacity': 0.6 } });
+    L({ id: 'hx-c-fill', type: 'fill', source: 'hexes', filter: kindIs('c'), paint: { 'fill-color': '#E8C23C', 'fill-opacity': ['+', 0.12, ['*', 0.3, lvFrac]] } });
+    L({ id: 'hx-c-line', type: 'line', source: 'hexes', filter: kindIs('c'), paint: { 'line-color': '#E8C23C', 'line-width': 1.3, 'line-dasharray': [5, 3], 'line-opacity': 0.8 } });
+    // … then yours on top: a glow, a bright fill and a near-white outline, so they can't be missed
+    L({ id: 'hx-m-halo', type: 'line', source: 'hexes', filter: kindIs('m'), layout: { 'line-join': 'round' }, paint: { 'line-color': '#C9D54A', 'line-width': 9, 'line-opacity': 0.3, 'line-blur': 3 } });
+    L({ id: 'hx-m-fill', type: 'fill', source: 'hexes', filter: kindIs('m'), paint: { 'fill-color': '#D9EE4C', 'fill-opacity': ['+', 0.5, ['*', 0.45, lvFrac]] } });
+    L({ id: 'hx-m-line', type: 'line', source: 'hexes', filter: kindIs('m'), layout: { 'line-join': 'round' }, paint: { 'line-color': '#F6FFB0', 'line-width': 2.4 } });
+    L({ id: 'route-line', type: 'line', source: 'route', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#C9D54A', 'line-width': 3 } });
+    L({ id: 'route-start', type: 'circle', source: 'route', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#0E120A', 'circle-stroke-color': '#C9D54A', 'circle-stroke-width': 2.5 } });
+    L({ id: 'you-acc', type: 'fill', source: 'you', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#C9D54A', 'fill-opacity': 0.1 } });
+    L({ id: 'you-halo', type: 'circle', source: 'you', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 17, 'circle-color': '#C9D54A', 'circle-opacity': 0.28 } });
+    L({ id: 'you-dot', type: 'circle', source: 'you', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 7, 'circle-color': '#C9D54A', 'circle-stroke-color': '#0A0D07', 'circle-stroke-width': 2.5 } });
+    L({ id: 'hx-level', type: 'symbol', source: 'hexes', minzoom: LABEL_Z, filter: ['all', ['!=', ['get', 'k'], 'n'], ['==', ['get', 'b'], 0]],
+      layout: { 'text-field': ['to-string', ['get', 'lv']], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-allow-overlap': true },
+      paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.6 } });
+    L({ id: 'hx-bounty', type: 'symbol', source: 'hexes', filter: ['>', ['get', 'b'], 0],
+      layout: { 'text-field': ['concat', '◎ ', ['to-string', ['get', 'b']]], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-allow-overlap': true },
+      paint: { 'text-color': '#12160A', 'text-halo-color': '#E8C23C', 'text-halo-width': 4 } });
+  };
 
-      host.replaceChildren(svg, h('p', { class: 'acct__map-cap' },
-        h('b', { text: (row && row.title) || latest.title || 'Latest run' }),
-        h('span', { text: [fmtDay(parseDay(latest.run_date)), `${num(latest.distance_km).toFixed(2)} km`, mine ? `${mine} of your hexes in frame` : 'no held hexes in frame'].filter(Boolean).join(' · ') })));
-    } catch (e) {
-      host.replaceChildren(empty('Couldn’t draw the map right now.'));
+  /* Supabase's API returns at most 1000 rows per request, and get_hexes_in_bounds returns one row per hex in
+     the box (unordered), so a big view gets silently cut off at a straight edge. The app never hits this because
+     a phone screen holds a few hundred hexes. Here: ask for strips that stay well under the cap, and if a
+     response still comes back full, split that box in half and ask again. Hexes are merged by (col,row). */
+  const HEX_S = 43.2, HEX_CAP = 1000, HEX_BUDGET = 600;
+  const mercY = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) * 6378137;
+  const boxSize = (b) => [((b.east - b.west) * Math.PI / 180) * 6378137, mercY(b.north) - mercY(b.south)];
+  const estCells = (b) => { const [w, h] = boxSize(b); return (w / (1.5 * HEX_S)) * (h / (HEX_S * Math.sqrt(3))); };
+  const fetchHexBox = async (client, b, depth = 0) => {
+    const strips = Math.max(1, Math.ceil(estCells(b) / HEX_BUDGET));
+    if (strips > 1 && depth < 6) {
+      const step = (b.east - b.west) / strips;
+      return (await Promise.all(Array.from({ length: strips }, (_, i) =>
+        fetchHexBox(client, { south: b.south, north: b.north, west: b.west + step * i, east: b.west + step * (i + 1) }, depth + 1)))).flat();
     }
+    const { data, error } = await client.rpc('get_hexes_in_bounds', { min_lat: b.south, min_lng: b.west, max_lat: b.north, max_lng: b.east });
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    if (rows.length >= HEX_CAP && depth < 6) {                      // full response = truncated: split the longer side
+      const [w, h] = boxSize(b);
+      const halves = w >= h
+        ? [{ ...b, east: (b.west + b.east) / 2 }, { ...b, west: (b.west + b.east) / 2 }]
+        : [{ ...b, north: (b.south + b.north) / 2 }, { ...b, south: (b.south + b.north) / 2 }];
+      return (await Promise.all(halves.map((x) => fetchHexBox(client, x, depth + 1)))).flat();
+    }
+    return rows;
+  };
+  const fetchHexes = async (client, b) => {
+    const seen = new Map();
+    (await fetchHexBox(client, b)).forEach((r) => seen.set(`${r.hex_col}:${r.hex_row}`, r));
+    return [...seen.values()];
+  };
+
+  /** database rows → GeoJSON. The polygons are the database's own, so their shape is the app's by construction. */
+  const hexCollection = (rows, me) => {
+    let mine = 0; const features = [];
+    rows.forEach((r) => {
+      let g; try { g = JSON.parse(r.geojson); } catch { return; }
+      g = (g && g.geometry) || g;
+      if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return;
+      const ally = r.user_id && (r.owner_group_id ? r.owner_group_id === me.active_group_id : r.user_id === me.id);
+      if (ally) mine += 1;
+      features.push({ type: 'Feature', geometry: g, properties: {
+        k: ally ? 'm' : r.owner_group_id ? 'c' : r.user_id ? 'o' : 'n', lv: num(r.level) || 1, b: num(r.bounty_total), col: colorOk(r.trail_color) || '#C8572D' } });
+    });
+    return { fc: { type: 'FeatureCollection', features }, mine };
+  };
+  const circlePoly = (lat, lng, meters) => {
+    const dLat = meters / 110540, dLng = meters / (111320 * Math.cos((lat * Math.PI) / 180)), ring = [];
+    for (let i = 0; i <= 48; i++) { const a = (i / 48) * 2 * Math.PI; ring.push([lng + Math.cos(a) * dLng, lat + Math.sin(a) * dLat]); }
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: {} };
   };
 
   /* ───────────── Tools: refresh / sign out / refocus ───────────── */

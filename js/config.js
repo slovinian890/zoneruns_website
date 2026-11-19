@@ -11,6 +11,6 @@
  * While either value is empty, the account features stay hidden and the page is a plain landing page.
  */
 window.ZONERUNS_CONFIG = {
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: 'https://hmbbggdiuocbbmwohroq.supabase.co',
+  supabaseAnonKey: 'sb_publishable_NB7vNSqcNvyygN44EO5gWg_OZ6_kn0i',
 };
