@@ -76,7 +76,7 @@
   };
 
   /** Build the lattice that covers a W×H viewport. Returns a Map keyed "q,r". */
-  const buildLattice = (parent, W, H, R, ox, oy) => {
+  const buildLattice = (parent, W, H, R, ox, oy, cls = 'hx') => {
     const cells = new Map();
     const g = svgEl('g', { class: 'lattice' }, parent);
     const qMin = Math.floor((-R - ox) / (R * 1.5)) - 1;
@@ -87,7 +87,7 @@
       for (let r = rMin; r <= rMax; r++) {
         const [cx, cy] = hexCenter(q, r, R, ox, oy);
         if (cx < -R || cx > W + R || cy < -R || cy > H + R) continue;
-        const el = svgEl('polygon', { class: 'hx', points: pointsAttr(hexCorners(cx, cy, R)) }, g);
+        const el = svgEl('polygon', { class: cls, points: pointsAttr(hexCorners(cx, cy, R)) }, g);
         cells.set(`${q},${r}`, { q, r, cx, cy, el, lbl: null, state: 0 });
       }
     }
@@ -115,8 +115,6 @@
     }
     return pts;
   })();
-  const START = ROUTE[0];
-  const END = ROUTE[ROUTE.length - 1];
   const HERO_R = 34, HERO_OX = 6, HERO_OY = 20;
   const HEX_RADIUS_M = 43.2;              // HEX_SIZE_M in the app
   const HEX_AREA_M2 = 2.598 * HEX_RADIUS_M * HEX_RADIUS_M;
@@ -187,6 +185,84 @@
     return lo;
   };
 
+  /* ───────────── Contours: marching squares over a smooth synthetic terrain ───────────── */
+  const makeField = (W, H, cell, seed) => {
+    const rnd = rng(seed);
+    const nx = Math.ceil(W / cell) + 1, ny = Math.ceil(H / cell) + 1;
+    const hills = Array.from({ length: 7 }, () => ({ x: rnd() * W, y: rnd() * H, a: 0.5 + rnd() * 0.9, r: Math.max(W, H) * (0.1 + rnd() * 0.18) }));
+    const f = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const x = i * cell, y = j * cell;
+        let v = 0.06 * Math.sin(x * 0.011 + seed) + 0.05 * Math.sin(y * 0.013 - seed * 0.7) + 0.03 * Math.sin((x + y) * 0.02);
+        for (const h of hills) { const dx = x - h.x, dy = y - h.y; v += h.a * Math.exp(-(dx * dx + dy * dy) / (2 * h.r * h.r)); }
+        f[j * nx + i] = v;
+      }
+    }
+    return { f, nx, ny };
+  };
+
+  const contourSegments = ({ f, nx, ny }, cell, level) => {
+    const out = [];
+    const t = (a, b) => { const d = b - a; return d === 0 ? 0.5 : (level - a) / d; };
+    for (let j = 0; j < ny - 1; j++) {
+      for (let i = 0; i < nx - 1; i++) {
+        const tl = f[j * nx + i], tr = f[j * nx + i + 1], br = f[(j + 1) * nx + i + 1], bl = f[(j + 1) * nx + i];
+        const idx = (tl > level ? 8 : 0) | (tr > level ? 4 : 0) | (br > level ? 2 : 0) | (bl > level ? 1 : 0);
+        if (idx === 0 || idx === 15) continue;
+        const x = i * cell, y = j * cell;
+        const top = () => [x + cell * t(tl, tr), y], right = () => [x + cell, y + cell * t(tr, br)];
+        const bottom = () => [x + cell * t(bl, br), y + cell], left = () => [x, y + cell * t(tl, bl)];
+        switch (idx) {
+          case 1: case 14: out.push([left(), bottom()]); break;
+          case 2: case 13: out.push([bottom(), right()]); break;
+          case 3: case 12: out.push([left(), right()]); break;
+          case 4: case 11: out.push([top(), right()]); break;
+          case 5: out.push([top(), left()], [bottom(), right()]); break;
+          case 6: case 9: out.push([top(), bottom()]); break;
+          case 7: case 8: out.push([top(), left()]); break;
+          case 10: out.push([top(), right()], [left(), bottom()]); break;
+        }
+      }
+    }
+    return out;
+  };
+
+  /** Contour lines every 10 m, an index line every 40 m with an elevation label that knocks out the line. */
+  const drawContours = (parent, W, H, { seed = 1, cell = 14, levels = 16, color, indexColor, labelColor, knock, width = 1, indexWidth = 1.2, labels = true, knockWidth = 5 }) => {
+    const field = makeField(W, H, cell, seed);
+    let lo = Infinity, hi = -Infinity;
+    for (const v of field.f) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const step = (hi - lo) / (levels + 1);
+    const g = svgEl('g', { class: 'topo', fill: 'none', 'stroke-linecap': 'round' }, parent);
+    const rnd = rng(seed + 99);
+    const placed = [];
+    for (let L = 1; L <= levels; L++) {
+      const segs = contourSegments(field, cell, lo + step * L);
+      if (!segs.length) continue;
+      const isIndex = L % 4 === 0;
+      const d = segs.map(([a, b]) => `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`).join('');
+      svgEl('path', { d, stroke: isIndex ? indexColor : color, 'stroke-width': isIndex ? indexWidth : width }, g);
+      if (!(labels && isIndex)) continue;
+      const m = Math.min(W, H) * 0.12;
+      const cand = segs.filter(([a, b]) => {
+        const dx = b[0] - a[0], dy = b[1] - a[1], x = (a[0] + b[0]) / 2, y = (a[1] + b[1]) / 2;
+        return Math.abs(dy) < Math.abs(dx) * 0.55 && x > m && x < W - m && y > m && y < H - m;
+      });
+      for (let k = 0; k < 2 && cand.length; k++) {
+        const [a, b] = cand[Math.floor(rnd() * cand.length)];
+        const x = (a[0] + b[0]) / 2, y = (a[1] + b[1]) / 2;
+        if (placed.some((p) => Math.hypot(p[0] - x, p[1] - y) < Math.min(W, H) * 0.3)) continue;
+        placed.push([x, y]);
+        let ang = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+        if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+        const txt = svgEl('text', { class: 'elev', x: x.toFixed(1), y: y.toFixed(1), transform: `rotate(${ang.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})`, fill: labelColor, stroke: knock, 'stroke-width': knockWidth }, g);
+        txt.textContent = String(100 + L * 10);
+      }
+    }
+    return g;
+  };
+
   /* ───────────── Map art (survey-style basemap) ───────────── */
   const drawBasemap = (svg, W, H, seed) => {
     const rnd = rng(seed);
@@ -205,17 +281,8 @@
       svgEl('path', { d: d + 'Z', 'stroke-linejoin': 'round', stroke: '#152010', 'stroke-width': 18 }, parks);
     }
 
-    // topographic ridges
-    const topo = svgEl('g', { fill: 'none', stroke: 'rgba(139,194,74,0.075)', 'stroke-width': 1 }, g);
-    const phase = rnd() * 6;
-    for (let k = -1; k < Math.ceil(H / 44) + 2; k++) {
-      let d = '';
-      for (let x = -20; x <= W + 20; x += 16) {
-        const y = k * 44 + 26 * Math.sin(x * 0.011 + k * 0.33 + phase) + 12 * Math.sin(x * 0.029 - k * 0.55) + 6 * Math.sin(x * 0.061 + k);
-        d += `${x === -20 ? 'M' : 'L'}${x} ${y.toFixed(1)}`;
-      }
-      svgEl('path', { d }, topo);
-    }
+    // contours under everything else
+    drawContours(g, W, H, { seed, cell: 12, levels: 16, color: 'rgba(139,194,74,0.075)', indexColor: 'rgba(139,194,74,0.16)', labelColor: 'rgba(200,214,150,0.4)', knock: '#10140B' });
 
     // streets: two crossing families, broken into irregular segments
     const streets = svgEl('g', { fill: 'none', 'stroke-linecap': 'round' }, g);
@@ -241,7 +308,7 @@
   };
 
   /* ───────────── Scene: one run on a lattice (used by hero, phone, card) ───────────── */
-  const sizeLabel = (R) => (R * 0.4).toFixed(1);
+  const sizeLabel = (R) => (R * 0.34).toFixed(1);
 
   const makeScene = (svg, { W, H, s = 1, tx = 0, ty = 0, seed = 1, basemap = true, labels = true, lattice = true }) => {
     const R = HERO_R * s, ox = HERO_OX * s + tx, oy = HERO_OY * s + ty;
@@ -505,7 +572,7 @@
     let shownP = 0;
     const setStep = (n, instant = false) => {
       if (n === current) return;
-      const prev = current; current = n;
+      current = n;
       phone.dataset.step = String(n);
 
       const toP = STEP_P[n];
@@ -583,6 +650,13 @@
 
     drawBasemap(svg, W, H, 11);
     const gHex = svgEl('g', {}, svg);
+    {
+      const m100 = 100 / (HEX_RADIUS_M / R);                       // 100 m in SVG units
+      const g = svgEl('g', { class: 'scale-svg', transform: `translate(${W - 26 - m100 * 2}, ${H - 36})`, 'pointer-events': 'none' }, svg);
+      svgEl('rect', { x: 0, y: 0, width: m100, height: 4, fill: '#ECEAD6', 'stroke-width': 1 }, g);
+      svgEl('rect', { x: m100, y: 0, width: m100, height: 4, fill: 'none', 'stroke-width': 1 }, g);
+      [[0, '0'], [m100, '100'], [m100 * 2, '200 m']].forEach(([x, s]) => { svgEl('text', { x, y: 18 }, g).textContent = s; });
+    }
     const hexes = new Map();
     let mi = 0, ri = 0, ci = 0;
 
@@ -842,6 +916,7 @@
       stageImg.src = src(current.slug, tier);
       stageImg.alt = `${current.name}, form ${tier} of 15`;
       $('#stageName').textContent = current.name;
+      $('#stagePl').textContent = `Plate ${pad2(HEROES.indexOf(current) + 1)} / ${HEROES.length}`;
       $('#stageRarity').textContent = r.label;
       $('#stageUnlock').textContent = `Unlock · ${r.cost} coins`;
       tierOut.textContent = pad2(tier);
@@ -904,7 +979,7 @@
 
   const initReveal = () => {
     if (reduceMotion || !('IntersectionObserver' in window)) return;
-    const targets = $$('.sec-label, .h2, .lede, .hint, .rule, .feats li, .spec__cell, .stage, .analytics, .roster-wrap, .arena__main, .hexsheet, .cta__inner > *');
+    const targets = $$('.sec-label, .lede, .hint, .rule, .feats li, .spec__cell, .stage, .analytics, .roster-wrap, .arena__main, .hexsheet, .alertcard, .interlude__time, .interlude__sub, .cta__inner > *:not(.cta__title)');
     const io = new IntersectionObserver((entries) => {
       entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
     }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
@@ -929,6 +1004,149 @@
     $$('.store[aria-disabled="true"]').forEach((el) => el.addEventListener('click', (e) => e.preventDefault()));
   };
 
+
+  /* ───────────── Display type: masked word reveal ───────────── */
+  const splitWords = (el) => {
+    const walk = (node) => {
+      [...node.childNodes].forEach((n) => {
+        if (n.nodeType === 3) {
+          const frag = document.createDocumentFragment();
+          n.textContent.split(/(\s+)/).forEach((p) => {
+            if (!p) return;
+            if (/^\s+$/.test(p)) { frag.appendChild(document.createTextNode(' ')); return; }
+            const w = document.createElement('span'); w.className = 'w';
+            const wi = document.createElement('span'); wi.className = 'wi'; wi.textContent = p;
+            w.appendChild(wi); frag.appendChild(w);
+          });
+          n.replaceWith(frag);
+        } else if (n.nodeType === 1 && !n.classList.contains('stop') && !n.classList.contains('sr-only')) walk(n);
+      });
+    };
+    walk(el);
+    $$('.wi', el).forEach((s, i) => s.style.setProperty('--i', i));
+    el.classList.add('is-split');
+  };
+
+  const initSplit = () => {
+    if (reduceMotion || !('IntersectionObserver' in window)) return;
+    const hero = $('.hero__title');
+    const heads = $$('.h2, .cta__title, .interlude__line');
+    [hero, ...heads].filter(Boolean).forEach(splitWords);
+    const ready = (document.fonts && document.fonts.ready) || Promise.resolve();
+    ready.then(() => requestAnimationFrame(() => hero && hero.classList.add('is-in')));
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.2 });
+    heads.forEach((h) => io.observe(h));
+  };
+
+  /* ───────────── Sheet index (vertical tick ruler) ───────────── */
+  /* ───────────── The world behind the story ─────────────
+     The same map, changing with each chapter: your land blooms, a rival moves in and takes the edge,
+     you fortify, a clan joins, and at the end it clears to a single pulsing hex. */
+  const makeWorld = (svg, W, H) => {
+    const R = 66;
+    const g = svgEl('g', { class: 'world' }, svg);
+    const cells = buildLattice(g, W, H, R, 20, 30, 'wx');
+    const rnd = rng(31);
+    const regions = {
+      home: { cx: 430, cy: 600, rx: 270, ry: 230 },
+      rival: { cx: 1000, cy: 480, rx: 300, ry: 250 },
+      clan: { cx: 760, cy: 940, rx: 260, ry: 150 },
+    };
+    const d = (c, r) => Math.max(0, Math.hypot((c.cx - r.cx) / r.rx, (c.cy - r.cy) / r.ry) + (rnd() - 0.5) * 0.22);
+    let callCell = null, best = Infinity;
+    cells.forEach((c) => {
+      c.dh = d(c, regions.home); c.dr = d(c, regions.rival); c.dc = d(c, regions.clan);
+      c.lvl = 2 + Math.floor(rnd() * 4); c.key = '';
+      const dist = Math.hypot(c.cx - 1140, c.cy - 660);   // open ground beside the closing headline
+      if (dist < best) { best = dist; callCell = c; }
+    });
+    const STATES = [
+      /* 0 cover        */ () => null,
+      /* I  departure   */ (c) => (c.dh < 0.62 ? ['mine', 2] : null),
+      /* II rivals      */ (c) => (c.dh < 0.62 ? (c.cx > 520 && c.dh > 0.34 ? ['rival', 1] : ['mine', 2]) : c.dr < 0.8 ? ['rival', c.lvl] : null),
+      /* III arsenal    */ (c) => (c.dh < 0.8 ? ['mine', 3 + (c.lvl % 3)] : c.dr < 0.72 && c.dr > 0.5 ? ['rival', c.lvl] : null),
+      /* IV companion   */ (c) => (c.dh < 0.95 ? ['mine', 3 + (c.lvl % 4)] : c.dc < 0.8 ? ['clan', c.lvl] : c.dr < 0.55 ? ['rival', c.lvl] : null),
+      /* V quiet road   */ (c) => (c.dh < 0.95 ? ['mine', 3 + (c.lvl % 4)] : c.dc < 0.8 ? ['clan', c.lvl] : null),
+      /* VI the call    */ () => null,
+    ];
+    return {
+      apply(ch) {
+        const f = STATES[ch] || STATES[0];
+        cells.forEach((c) => {
+          const st = f(c), key = st ? st[0] + st[1] : '';
+          if (key === c.key) return;
+          const prev = c.key; c.key = key;
+          c.el.style.transitionDelay = `${Math.round((st ? c.dh : c.dr) * 480)}ms`;   // growth ripples outward
+          c.el.classList.remove('is-mine', 'is-rival', 'is-clan');
+          if (st) { c.el.classList.add(`is-${st[0]}`); c.el.style.setProperty('--fo', (0.18 + 0.7 * ((st[1] - 1) / 9)).toFixed(3)); }
+          else if (prev) c.el.style.removeProperty('--fo');
+        });
+        if (callCell) callCell.el.classList.toggle('is-call', ch === 6);
+      },
+    };
+  };
+
+  /* ───────────── Story: chapters drive the world, the sky and the companion ───────────── */
+  const CHAPTER_IDS = ['top', 'how', 'compete', 'manual', 'heroes', 'tracker', 'early-access'];
+  const initStory = (world) => {
+    const links = $$('#sheetnav a');
+    const body = document.body;
+    const setChapter = (idx) => {
+      if (body.dataset.chapter === String(idx)) return;
+      body.dataset.chapter = String(idx);
+      links.forEach((l, i) => l.classList.toggle('is-on', i === idx));
+      if (world) world.apply(idx);
+    };
+    setChapter(0);
+
+    // the companion: a Phoenix that grows through its 15 forms as you read
+    const comp = $('#compImg'), compForm = $('#compForm');
+    let tier = 0, ticking = false;
+    const grow = () => {
+      ticking = false;
+      const how = document.getElementById('how');
+      if (!how || !comp) return;
+      const from = how.getBoundingClientRect().top + scrollY - innerHeight * 0.5;
+      const to = document.documentElement.scrollHeight - innerHeight;
+      const next = 1 + Math.round(clamp((scrollY - from) / Math.max(1, to - from), 0, 1) * 14);
+      if (next === tier) return;
+      tier = next;
+      comp.src = `assets/heroes/phoenix/tier-${pad2(next)}.png`;
+      compForm.textContent = `${pad2(next)} / 15`;
+      comp.classList.remove('bump'); void comp.offsetWidth; comp.classList.add('bump');
+    };
+    if (comp) { addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(grow); } }, { passive: true }); grow(); }
+
+    if (!('IntersectionObserver' in window)) return;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) setChapter(CHAPTER_IDS.indexOf(e.target.id)); });
+    }, { rootMargin: '-45% 0px -50% 0px' });
+    CHAPTER_IDS.forEach((id) => { const s = document.getElementById(id); if (s) io.observe(s); });
+  };
+
+  /* ───────────── Page backdrop: fixed contour map with a slow drift ───────────── */
+  const initContours = () => {
+    const host = $('#contours');
+    if (!host) return null;
+    const W = 1440, H = 1100;
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'xMidYMid slice' }, host);
+    drawContours(svg, W, H, { seed: 77, cell: 16, levels: 24, color: 'rgba(236,234,214,0.04)', indexColor: 'rgba(236,234,214,0.085)', labelColor: 'rgba(236,234,214,0.34)', knock: '#0A0D07', width: 0.9, indexWidth: 1.1, knockWidth: 3 });
+    const world = makeWorld(svg, W, H);
+    if (!reduceMotion) {
+      let ticking = false;
+      const drift = () => {
+        ticking = false;
+        const max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
+        host.style.transform = `translate3d(0, ${((0.5 - scrollY / max) * 120).toFixed(1)}px, 0)`;
+      };
+      addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(drift); } }, { passive: true });
+      drift();
+    }
+    return world;
+  };
+
   /* ───────────── Boot ───────────── */
   const boot = () => {
     if (new URLSearchParams(location.search).has('nosmooth')) document.documentElement.style.scrollBehavior = 'auto';
@@ -939,6 +1157,9 @@
       svgEl('feGaussianBlur', { stdDeviation: 6 }, f);
     }
     initHeader();
+    const world = initContours();
+    initSplit();
+    initStory(world);
     initHero();
     initPhone();
     initBoard();

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-/x7W7R75k8Roq0WaVRQX9blP4OufE5xbAdzklGxsgpw='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; base-uri 'self'; form-action 'self'; object-src 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ZoneRuns — Close the loop. Take the block.</title>
   <meta name="description" content="ZoneRuns is a running app where every loop you close claims real hexes on the map. Fortify them, put bounties on rivals, and watch your back.">
@@ -20,6 +21,8 @@
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
+<div class="contours" id="contours" aria-hidden="true"></div>
+<div class="sky" aria-hidden="true"><i class="sky__dawn"></i><i class="sky__dusk"></i><i class="sky__night"></i><i class="sky__calm"></i></div>
 
 <!-- ───────── Icon sprite (stroke icons, 24×24) ───────── -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -58,6 +61,11 @@
 
 <a class="skip" href="#main">Skip to content</a>
 
+<aside class="companion" id="companion" aria-hidden="true" title="Your companion grows as you read">
+  <img id="compImg" alt="" width="52" height="52" src="assets/heroes/phoenix/tier-01.png">
+  <b id="compForm">01 / 15</b>
+</aside>
+
 <!-- ───────── Header ───────── -->
 <header class="site-header" id="siteHeader">
   <a class="brand" href="#top" aria-label="ZoneRuns — back to top">
@@ -70,8 +78,21 @@
     <a href="#heroes">Heroes</a>
     <a href="#tracker">Tracker</a>
   </nav>
-  <a class="btn btn--sm btn--primary" href="#early-access">Early access</a>
+  <div class="header-actions">
+    <button class="btn btn--sm btn--line" id="accountBtn" type="button" aria-haspopup="dialog" hidden>Sign in</button>
+    <a class="btn btn--sm btn--line btn--early" href="#early-access">Early access <svg class="ico ico--arrow" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+  </div>
 </header>
+
+<nav class="sheetnav" id="sheetnav" aria-label="Sheets">
+  <a href="#top" data-for="top"><span>Cover</span><i></i></a>
+  <a href="#how" data-for="how"><span>I · The Departure</span><i></i></a>
+  <a href="#compete" data-for="compete"><span>II · The Rivals</span><i></i></a>
+  <a href="#manual" data-for="manual"><span>III · The Arsenal</span><i></i></a>
+  <a href="#heroes" data-for="heroes"><span>IV · The Companion</span><i></i></a>
+  <a href="#tracker" data-for="tracker"><span>V · The Quiet Road</span><i></i></a>
+  <a href="#early-access" data-for="early-access"><span>VI · The Call</span><i></i></a>
+</nav>
 
 <main id="main">
 
@@ -79,21 +100,25 @@
   <section class="hero" id="top">
     <div class="hero__copy">
       <p class="eyebrow">Territory running <span class="status"><i></i>Private testing</span></p>
-      <h1 class="hero__title">
+      <h1 class="hero__title" aria-label="Close the loop. Take the block.">
         <span class="line"><span class="part">Close the</span> <span class="part">loop.</span></span>
-        <span class="line"><span class="part">Take the</span> <span class="part"><em>block.</em></span></span>
+        <span class="line"><span class="part">Take the</span> <span class="part">block<span class="stop" aria-hidden="true"></span></span></span>
       </h1>
       <p class="hero__lede">
-        ZoneRuns turns every run into a land grab. Loop back to where you started and <b>the hexes inside become yours</b>&nbsp;&mdash; until someone else runs through them.
+        Every street you&rsquo;ve ever run belongs to nobody. Close a loop and <b>the hexes inside become yours</b>&nbsp;&mdash; until someone else runs through them.
       </p>
       <div class="hero__cta">
         <a class="btn btn--primary" href="#early-access">
-          <svg class="ico" aria-hidden="true"><use href="#i-hex"/></svg>
           Get early access
+          <svg class="ico ico--arrow" aria-hidden="true"><use href="#i-arrow-right"/></svg>
         </a>
-        <a class="link-arrow" href="#how">See how a claim works <svg class="ico" aria-hidden="true"><use href="#i-arrow-down"/></svg></a>
+        <a class="link-arrow" href="#how">Begin the story <svg class="ico" aria-hidden="true"><use href="#i-arrow-down"/></svg></a>
       </div>
-      <p class="hero__platforms">iOS &amp; Android &nbsp;·&nbsp; GPS loop capture &nbsp;·&nbsp; Live rival alerts</p>
+      <dl class="hero__facts">
+        <div><dt>Platforms</dt><dd>iOS · Android</dd></div>
+        <div><dt>Datum</dt><dd>WGS 84</dd></div>
+        <div><dt>Cell</dt><dd>Hex, r 43.2 m</dd></div>
+      </dl>
     </div>
 
     <figure class="plate-wrap">
@@ -131,17 +156,34 @@
           <span class="toast__coin"><svg class="ico" aria-hidden="true"><use href="#i-coin"/></svg>+1 coin</span>
         </div>
       </div>
-      <figcaption class="figcap"><span>Fig. 01</span> Loop closes. Hexes flip. A rival hits back.</figcaption>
+      <figcaption class="figcap">
+        <span class="figcap__t"><b>Fig. 01</b><i>Loop closes. Hexes flip. A rival hits back.</i></span>
+        <span class="scale" aria-hidden="true">
+          <span class="scalebar"><em>0</em><em>100</em><em>200 m</em></span>
+          <svg class="north" viewBox="0 0 18 32"><text x="9" y="8" text-anchor="middle" font-size="9" font-family="IBM Plex Mono, monospace" fill="currentColor">N</text><path d="M9 12 L15 30 L9 25.5 L3 30Z" fill="currentColor"/></svg>
+        </span>
+      </figcaption>
     </figure>
+  </section>
+
+  <!-- ───────── Your sheet (signed-in players only; filled by js/account.js) ───────── -->
+  <section class="account section" id="account" aria-label="Your account" hidden>
+    <p class="sec-label"><span class="sec-label__no">Your campaign</span><span>Live from your ZoneRuns account</span></p>
+    <div class="acct__tools">
+      <button class="textbtn" id="acctRefresh" type="button">Refresh</button>
+      <button class="textbtn" id="acctSignOut" type="button">Sign out</button>
+    </div>
+    <div class="acct__body" id="acctBody" aria-live="polite"></div>
   </section>
 
   <!-- ───────── The rulebook in numbers ───────── -->
   <section class="spec" aria-labelledby="specTitle">
     <h2 class="sr-only" id="specTitle">The rulebook in numbers</h2>
+    <p class="spec__cap"><span><b>The laws</b>Constants of this world</span><span>Values from the shipped ruleset</span></p>
     <div class="spec__grid">
       <div class="spec__cell">
         <p class="spec__label">Hex, flat to flat</p>
-        <p class="spec__num">≈75<small>m</small></p>
+        <p class="spec__num">75<small>m</small></p>
         <p class="spec__desc">About a city block. The map is a grid of them.</p>
       </div>
       <div class="spec__cell">
@@ -175,8 +217,9 @@
   <!-- ───────── How a claim works ───────── -->
   <section class="how section" id="how">
     <header class="how__intro">
-      <p class="sec-label"><span>01</span> How a claim works</p>
-      <h2 class="h2">A claim is just a loop that comes back.</h2>
+      <p class="sec-label"><span class="sec-label__no">Chapter I</span><span>05:41 — The Departure</span></p>
+      <h2 class="h2">The city is asleep. You aren&rsquo;t.</h2>
+      <p class="lede">Nobody owns these streets yet. You lace up in the dark with one rule in your head: <b>come back to where you started.</b></p>
     </header>
 
     <div class="how__stage">
@@ -257,36 +300,47 @@
     <div class="how__steps">
       <article class="step is-active" data-step="1">
         <p class="step__no">Step 1</p>
-        <h3>Start a run, any run.</h3>
-        <p>Hit <b>Start run</b> and go. Distance, time, pace and the hexes you cross update live, and keep going with the screen locked. Pause or stop from the lock screen without unlocking.</p>
+        <h3>You leave before the light.</h3>
+        <p>Hit <b>Start run</b> and go. Distance, time, pace and every hex you cross tick up live. Lock the screen, slide the phone into a pocket &mdash; pause or stop from the lock screen whenever you need to.</p>
         <p class="step__rule">Updates every 1.5 s · Lock-screen controls</p>
       </article>
 
       <article class="step" data-step="2">
         <p class="step__no">Step 2</p>
-        <h3>Come back to where you began.</h3>
-        <p>The banner tells you how you're doing. End within <b>40&nbsp;m</b> of your start and it flips to <i>Loop closed — stop to claim territory!</i></p>
+        <h3>Every turn is a bet.</h3>
+        <p>The map doesn&rsquo;t care how fast you are, only that you come home. End within <b>40&nbsp;m</b> of where you began and the banner turns: <i>Loop closed — stop to claim territory!</i></p>
         <p class="step__rule">≥ 300 m² enclosed · Not closed = no claim, nothing lost</p>
       </article>
 
       <article class="step" data-step="3">
         <p class="step__no">Step 3</p>
-        <h3>Everything the loop touches is yours.</h3>
-        <p>Stop and save. Every hex inside the loop is captured at defense level 2, and the run pays out coins. One claim per day, so pick the route like it matters.</p>
+        <h3>Come home, and it&rsquo;s yours.</h3>
+        <p>Stop and save. Every hex your loop touched is captured at defense level 2, and the run pays out coins. One claim a day &mdash; so make the route mean something.</p>
         <p class="step__rule">1 claim / day · Night runs start at level 3</p>
       </article>
     </div>
   </section>
 
+  <section class="interlude" aria-label="Story interlude">
+    <p class="interlude__time">18:12</p>
+    <p class="interlude__line">By evening, someone has run through your streets.</p>
+    <p class="interlude__sub">Your phone buzzes before you see it.</p>
+  </section>
+
   <!-- ───────── Compete (interactive hex board) ───────── -->
   <section class="compete section" id="compete">
     <header class="compete__intro">
-      <p class="sec-label"><span>02</span> Compete mode</p>
+      <p class="sec-label"><span class="sec-label__no">Chapter II</span><span>18:12 — The Rivals</span></p>
       <h2 class="h2">Land is never won once. It's held.</h2>
       <p class="lede">
-        Every hex has a defense level. A rival's run knocks it down one. Hit it at level 1 and it goes neutral, free for anyone. Run back over your own to heal it.
+        Somewhere across the river, a stranger just closed a loop through your block. Every hex has a defense level: a rival&rsquo;s run knocks it down one, a hit at level 1 sends it neutral, and then it belongs to whoever runs it next. <b>Run back over your own to heal it.</b>
       </p>
-      <p class="hint"><i></i>This is a live demo. Tap a hex, then send a run through it.</p>
+      <div class="alertcard" role="note">
+        <span class="alertcard__icon"><svg class="ico" aria-hidden="true"><use href="#i-warn"/></svg></span>
+        <span class="alertcard__text"><b>Under attack!</b><span>mia_runs just took 9,700&nbsp;m² from you — and they&rsquo;re not stopping!</span></span>
+        <time class="alertcard__time">18:12</time>
+      </div>
+      <p class="hint"><i></i>The battlefield is live. Tap a hex &mdash; then strike back.</p>
     </header>
 
     <div class="arena">
@@ -320,19 +374,26 @@
     </div>
   </section>
 
+  <section class="interlude" aria-label="Story interlude">
+    <p class="interlude__time">Next morning, 07:15</p>
+    <p class="interlude__line">You barely slept. You read the rules again.</p>
+    <p class="interlude__sub">Land can be held. You just have to know how.</p>
+  </section>
+
   <!-- ───────── Rules of engagement (paper) ───────── -->
   <section class="manual section" id="manual">
     <div class="manual__inner">
       <header class="manual__intro">
-        <p class="sec-label"><span>03</span> Rules of engagement</p>
-        <h2 class="h2">Five ways to make it personal.</h2>
+        <p class="sec-label"><span class="sec-label__no">Chapter III</span><span>Next morning — The Arsenal</span></p>
+        <h2 class="h2">Dig in. Strike back.</h2>
+        <p class="lede">The first claim is luck. Keeping the land is craft. Five tactics, all in the app, none of them subtle.</p>
       </header>
 
       <ol class="rules">
         <li class="rule">
           <span class="rule__no">01</span>
           <h3 class="rule__name">Fortify</h3>
-          <p class="rule__desc">Spend coins to raise a hex's defense ceiling, one level at a time, up to 10. Each step costs double the last: 15 coins for level 3, 1,920 for level 10. Running over your own hex heals it back to that ceiling.</p>
+          <p class="rule__desc">Spend coins and a hex holds longer. Raise its ceiling one level at a time, up to 10 &mdash; each step costs double the last, from 15 coins to 1,920. Run over your own land and it heals back to that ceiling.</p>
           <div class="rule__viz" aria-hidden="true">
             <div class="ladder">
               <span style="--h:14%"><b>15</b><i>L3</i></span>
@@ -350,16 +411,16 @@
         <li class="rule">
           <span class="rule__no">02</span>
           <h3 class="rule__name">Bounty</h3>
-          <p class="rule__desc">Put coins on enemy hexes. They're held in escrow, split across the hexes you pick, and paid out in full to whoever lands the finishing hit. Change your mind and an unclaimed bounty is refunded.</p>
+          <p class="rule__desc">Put a price on their land. Coins go into escrow, split across the hexes you pick, and the whole pile is paid to whoever lands the finishing hit. Change your mind and an unclaimed bounty is refunded.</p>
           <div class="rule__viz" aria-hidden="true">
             <svg class="mini" viewBox="0 0 220 130">
-              <g class="mh mh--rival"><path d="M90.0 48.0 L80.0 65.3 L60.0 65.3 L50.0 48.0 L60.0 30.7 L80.0 30.7Z"/></g>
-              <g class="mh mh--rival"><path d="M120.0 65.3 L110.0 82.6 L90.0 82.6 L80.0 65.3 L90.0 48.0 L110.0 48.0Z"/></g>
-              <g class="mh mh--rival"><path d="M150.0 48.0 L140.0 65.3 L120.0 65.3 L110.0 48.0 L120.0 30.7 L140.0 30.7Z"/></g>
-              <g class="tag"><rect x="52" y="40" rx="3" width="36" height="16"/><text x="70" y="49" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
-              <g class="tag"><rect x="82" y="57.3" rx="3" width="36" height="16"/><text x="100" y="66.3" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
-              <g class="tag"><rect x="112" y="40" rx="3" width="36" height="16"/><text x="130" y="49" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
-              <text class="mini__cap" x="100" y="112" text-anchor="middle">120 COINS · 3 HEXES</text>
+              <g class="mh mh--rival"><path d="M92.0 46.0 L79.0 68.5 L53.0 68.5 L40.0 46.0 L53.0 23.5 L79.0 23.5Z"/></g>
+              <g class="mh mh--rival"><path d="M132.5 69.4 L119.5 91.9 L93.5 91.9 L80.5 69.4 L93.5 46.9 L119.5 46.9Z"/></g>
+              <g class="mh mh--rival"><path d="M173.0 46.0 L160.0 68.5 L134.0 68.5 L121.0 46.0 L134.0 23.5 L160.0 23.5Z"/></g>
+              <g class="tag"><rect x="50.0" y="39.0" rx="3" width="32" height="14"/><text x="66.0" y="46.5" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
+              <g class="tag"><rect x="90.5" y="62.4" rx="3" width="32" height="14"/><text x="106.5" y="69.9" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
+              <g class="tag"><rect x="131.0" y="39.0" rx="3" width="32" height="14"/><text x="147.0" y="46.5" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
+              <text class="mini__cap" x="106.5" y="118" text-anchor="middle">120 COINS · 3 HEXES</text>
             </svg>
           </div>
         </li>
@@ -367,7 +428,7 @@
         <li class="rule">
           <span class="rule__no">03</span>
           <h3 class="rule__name">Ghost run</h3>
-          <p class="rule__desc">Once a day, take land without the victim getting an alert. They'll still see the map change. They just won't get the push.</p>
+          <p class="rule__desc">Once a day, take ground without a warning. The victim sees the map change &mdash; they just never get the buzz.</p>
           <div class="rule__viz" aria-hidden="true">
             <span class="ghostpill"><svg class="ico"><use href="#i-ghost"/></svg>Ghost run — victims won't be notified</span>
           </div>
@@ -376,7 +437,7 @@
         <li class="rule">
           <span class="rule__no">04</span>
           <h3 class="rule__name">Night run</h3>
-          <p class="rule__desc">Hexes you take from neutral ground between 21:00 and 06:00 start at defense level 3 instead of 2. The streets are quieter, and so is the competition.</p>
+          <p class="rule__desc">After nine at night the streets go quiet. Hexes you take from neutral ground between 21:00 and 06:00 start at defense level 3 instead of 2.</p>
           <div class="rule__viz" aria-hidden="true">
             <svg class="mini" viewBox="0 0 220 130">
               <g class="mh mh--day"><path d="M64.0 55.0 L54.0 72.3 L34.0 72.3 L24.0 55.0 L34.0 37.7 L54.0 37.7Z"/></g>
@@ -394,7 +455,7 @@
         <li class="rule">
           <span class="rule__no">05</span>
           <h3 class="rule__name">Clans &amp; weekly boards</h3>
-          <p class="rule__desc">Run under a clan's flag and the hexes you take belong to it. Any member can heal or fortify them. Boards rank net area this week, claimed minus what was taken from you, and reset every 7 days so latecomers aren't locked out by whoever ran first.</p>
+          <p class="rule__desc">Run under a clan&rsquo;s flag and the land you take belongs to all of you &mdash; anyone can heal or fortify it. Boards rank this week&rsquo;s net area, claimed minus what was taken, and reset every seven days, so a latecomer can still end the week on top.</p>
           <div class="rule__viz" aria-hidden="true">
             <div class="board-mini">
               <p class="board-mini__head"><span>This week</span><span>Net area</span></p>
@@ -409,19 +470,26 @@
     </div>
   </section>
 
+  <section class="interlude" aria-label="Story interlude">
+    <p class="interlude__time">Day 30</p>
+    <p class="interlude__line">Somewhere along the way, you stopped running alone.</p>
+    <p class="interlude__sub">Every coin you earn feeds something that grows.</p>
+  </section>
+
   <!-- ───────── Heroes ───────── -->
   <section class="heroes section" id="heroes">
     <header class="heroes__intro">
-      <p class="sec-label"><span>04</span> Heroes</p>
-      <h2 class="h2">Every run feeds a hero.</h2>
+      <p class="sec-label"><span class="sec-label__no">Chapter IV</span><span>Day 30 — The Companion</span></p>
+      <h2 class="h2">It starts as a speck.</h2>
       <p class="lede">
-        Coins from your runs unlock pixel-art heroes and evolve them through 15 forms. A run under 5&nbsp;km pays 1&nbsp;coin and every further 5&nbsp;km adds another; a daily login bonus grows across a 7-day streak. Everyone starts with one hero, picked at random.
+        Every run feeds a hero. Coins from your kilometres unlock pixel-art companions and evolve them through fifteen forms. You begin with one, picked at random &mdash; and by the time it&rsquo;s fully grown, you&rsquo;ll know every street it carried you through.
       </p>
+      <p class="fine">A run under 5&nbsp;km pays 1&nbsp;coin and every further 5&nbsp;km adds another; a daily login bonus builds across a 7-day streak.</p>
     </header>
 
     <div class="heroes__grid">
       <div class="stage" id="stage">
-        <div class="stage__art" id="stageArt"><img id="stageImg" alt="" width="320" height="320"></div>
+        <div class="stage__art" id="stageArt"><div class="stage__plate"><span id="stagePl">Plate 24 / 25</span><span>160 × 160 px</span></div><img id="stageImg" alt="" width="320" height="320"></div>
         <div class="stage__meta">
           <span class="rarity" id="stageRarity">Legendary</span>
           <h3 id="stageName">Phoenix</h3>
@@ -447,18 +515,24 @@
     </div>
   </section>
 
+  <section class="interlude" aria-label="Story interlude">
+    <p class="interlude__time">Any day</p>
+    <p class="interlude__line">Not every run is a war.</p>
+    <p class="interlude__sub">Between the battles, there&rsquo;s just the road.</p>
+  </section>
+
   <!-- ───────── Tracker basics ───────── -->
   <section class="tracker section" id="tracker">
     <div class="tracker__grid">
       <div class="tracker__copy">
-        <p class="sec-label"><span>05</span> Underneath it all</p>
-        <h2 class="h2">Still a proper run tracker.</h2>
+        <p class="sec-label"><span class="sec-label__no">Chapter V</span><span>Any day — The Quiet Road</span></p>
+        <h2 class="h2">Between the battles, the road.</h2>
         <ol class="feats">
-          <li><span>01</span><div><h3>Live tracking</h3><p>Distance, time, pace and hexes crossed, refreshed every 1.5 seconds.</p></div></li>
-          <li><span>02</span><div><h3>Screen off, still running</h3><p>Background tracking on iOS and Android, with pause and stop on the lock screen.</p></div></li>
-          <li><span>03</span><div><h3>Works with no signal</h3><p>Finish a run offline and it's queued, then synced when you're back online.</p></div></li>
-          <li><span>04</span><div><h3>Feed, friends, chat</h3><p>Post a run with its route map. Follow friends, like, comment, message, and talk tactics in clan chat.</p></div></li>
-          <li><span>05</span><div><h3>Replay cards</h3><p>Every claimed loop gets a short animated replay you can share as an image.</p></div></li>
+          <li><span>01</span><div><h3>Every kilometre, counted</h3><p>Distance, time, pace and hexes crossed, refreshed every 1.5 seconds.</p></div></li>
+          <li><span>02</span><div><h3>Phone in your pocket</h3><p>Background tracking on iOS and Android, with pause and stop on the lock screen.</p></div></li>
+          <li><span>03</span><div><h3>Off the grid</h3><p>Finish a run with no signal and it&rsquo;s queued, then synced the moment you&rsquo;re back online.</p></div></li>
+          <li><span>04</span><div><h3>Someone to tell</h3><p>Post the run with its route map. Follow friends, like, comment, message &mdash; and plan the next raid in clan chat.</p></div></li>
+          <li><span>05</span><div><h3>The moment, replayed</h3><p>Every claimed loop gets a short animated replay you can share as an image.</p></div></li>
         </ol>
       </div>
 
@@ -482,13 +556,19 @@
     </div>
   </section>
 
+  <section class="interlude" aria-label="Story interlude">
+    <p class="interlude__time">Tomorrow, 05:41</p>
+    <p class="interlude__line">The map doesn&rsquo;t sleep.</p>
+    <p class="interlude__sub">Neither do they.</p>
+  </section>
+
   <!-- ───────── CTA ───────── -->
   <section class="cta" id="early-access">
     <div class="cta__inner">
-      <p class="sec-label sec-label--center"><span>06</span> Early access</p>
-      <h2 class="cta__title">Get on<br>the map.</h2>
+      <p class="sec-label sec-label--center"><span class="sec-label__no">Chapter VI</span><span>Tomorrow, 05:41 — The Call</span></p>
+      <h2 class="cta__title">Get on<br>the map<span class="stop" aria-hidden="true"></span></h2>
       <p class="cta__lede">
-        ZoneRuns is in private testing on iOS and Android. Store links will appear right here when the first public build ships.
+        ZoneRuns is in private testing on iOS and Android. Store links will appear right here when the first public build ships. Until then, somewhere out there is a block with nobody&rsquo;s name on it.
       </p>
       <div class="cta__buttons">
         <a class="store" id="storeIos" href="#early-access" aria-disabled="true">
@@ -512,10 +592,44 @@
     <svg class="brand__mark" aria-hidden="true"><use href="#logo"/></svg>
     <span class="brand__word">ZoneRuns</span>
   </a>
-  <p>Built with Expo, React Native, Supabase and PostGIS.</p>
+  <p class="colophon">Set in Newsreader, Archivo and IBM Plex Mono. Maps are drawn in SVG; territory is computed in PostGIS. Built with Expo, React Native and Supabase.</p>
   <p>© 2026 ZoneRuns</p>
 </footer>
 
+<dialog class="auth" id="authDialog" aria-labelledby="authTitle">
+  <div class="auth__inner">
+    <button class="auth__close" id="authClose" type="button" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <p class="sec-label"><span class="sec-label__no">Account</span><span id="authTag">Sign in</span></p>
+    <h2 class="auth__title" id="authTitle">Welcome back.</h2>
+    <p class="auth__sub" id="authSub">Use the same email and password as the ZoneRuns app to see your coins, hero and territory.</p>
+
+    <div class="auth__tabs" role="tablist" aria-label="Sign in or create an account">
+      <button type="button" role="tab" id="tabIn" aria-selected="true">Sign in</button>
+      <button type="button" role="tab" id="tabUp" aria-selected="false" tabindex="-1">Create account</button>
+    </div>
+
+    <form class="auth__form" id="authForm" novalidate>
+      <label class="fld" id="rowUser" hidden><span>Username</span>
+        <input id="fUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="24" placeholder="e.g. night_runner"></label>
+      <label class="fld"><span>Email</span>
+        <input id="fEmail" name="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" inputmode="email" placeholder="you@example.com"></label>
+      <label class="fld"><span>Password</span>
+        <input id="fPass" name="password" type="password" autocomplete="current-password" placeholder="At least 6 characters"></label>
+      <p class="auth__msg" id="authMsg" role="alert" data-kind="err"></p>
+      <button class="btn btn--primary auth__submit" id="authSubmit" type="submit">Sign in</button>
+    </form>
+
+    <div class="auth__done" id="authDone" hidden>
+      <p class="auth__done-t">Check your email.</p>
+      <p>We sent a confirmation link to <b id="authDoneEmail"></b>. Open it, then come back and sign in.</p>
+    </div>
+
+    <p class="auth__fine">Your password goes straight to Supabase Auth &mdash; this site never stores it. Same account as the app.</p>
+  </div>
+</dialog>
+
+<script src="js/config.js"></script>
 <script src="js/main.js" defer></script>
+<script src="js/account.js" defer></script>
 </body>
 </html>
