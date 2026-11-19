@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ZoneRuns — Close the loop. Take the block.</title>
+  <meta name="description" content="ZoneRuns is a running app where every loop you close claims real hexes on the map. Fortify them, put bounties on rivals, and watch your back.">
+  <meta name="theme-color" content="#0D1108">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="ZoneRuns — Close the loop. Take the block.">
+  <meta property="og:description" content="Run a loop that closes and the hexes inside become yours — until someone runs through them.">
+  <meta property="og:image" content="assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="preload" as="font" type="font/woff2" href="assets/fonts/archivo-100-900-latin.woff2" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="assets/fonts/ibmplexmono-500-latin.woff2" crossorigin>
+  <link rel="stylesheet" href="css/style.css">
+  <script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+
+<!-- ───────── Icon sprite (stroke icons, 24×24) ───────── -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="g-brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C9D54A"/><stop offset="1" stop-color="#E8C23C"/>
+    </linearGradient>
+    <symbol id="logo" viewBox="0 0 32 32">
+      <path fill="url(#g-brand)" fill-rule="evenodd" d="M16 2l12.12 7v14L16 30 3.88 23V9L16 2zm0 6.6L9.6 12.3v7.4l6.4 3.7 6.4-3.7v-7.4L16 8.6z"/>
+      <circle cx="16" cy="16" r="2.3" fill="#E8C23C"/>
+    </symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8 5.7-5.8"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5M12 17.4v.1"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.2"/></symbol>
+    <symbol id="i-bounty" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22"/></symbol>
+    <symbol id="i-ghost" viewBox="0 0 24 24"><path d="M5 20V11a7 7 0 0 1 14 0v9l-2.5-2-2.3 2-2.2-2-2.2 2-2.3-2z"/><circle cx="9.6" cy="11" r=".9" fill="currentColor"/><circle cx="14.4" cy="11" r=".9" fill="currentColor"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6z"/><path d="M9.5 11.8h5v3.9h-5zM10.4 11.8v-1.1a1.6 1.6 0 0 1 3.2 0v1.1"/></symbol>
+    <symbol id="i-hex" viewBox="0 0 24 24"><path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5.5v13M15.5 5.5v13" stroke-width="3"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.8" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V3.5M8 7l4-4 4 4M5.5 12v7.5h13V12"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-run" viewBox="0 0 24 24"><circle cx="14.5" cy="4.8" r="1.9"/><path d="M8 20l3-5.5-2.5-2.5 3.2-4.5 3 3.2 3.3.8M11.7 7.5 8.5 9.5l-1.8 3.2M12 14.5l3.5 2.5.8 3.5"/></symbol>
+    <symbol id="i-feed" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="15" rx="2.2"/><path d="M8 9h8M8 12.5h8M8 16h4.5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 7h11M9 12h11M9 17h11"/><circle cx="4.8" cy="7" r=".9" fill="currentColor"/><circle cx="4.8" cy="12" r=".9" fill="currentColor"/><circle cx="4.8" cy="17" r=".9" fill="currentColor"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5c.4-3.3 2.9-5 6-5s5.6 1.7 6 5"/><circle cx="17" cy="9.5" r="2.5"/><path d="M17.5 14.6c2.2.2 3.6 1.7 3.9 4.4"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.6"/><path d="M4.8 20c.5-3.9 3.3-6 7.2-6s6.7 2.1 7.2 6"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
+  </defs>
+</svg>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- ───────── Header ───────── -->
+<header class="site-header" id="siteHeader">
+  <a class="brand" href="#top" aria-label="ZoneRuns — back to top">
+    <svg class="brand__mark" aria-hidden="true"><use href="#logo"/></svg>
+    <span class="brand__word">ZoneRuns</span>
+  </a>
+  <nav class="nav" aria-label="Primary">
+    <a href="#how">How it works</a>
+    <a href="#compete">Compete</a>
+    <a href="#heroes">Heroes</a>
+    <a href="#tracker">Tracker</a>
+  </nav>
+  <a class="btn btn--sm btn--primary" href="#early-access">Early access</a>
+</header>
+
+<main id="main">
+
+  <!-- ───────── Hero ───────── -->
+  <section class="hero" id="top">
+    <div class="hero__copy">
+      <p class="eyebrow">Territory running <span class="status"><i></i>Private testing</span></p>
+      <h1 class="hero__title">
+        <span class="line"><span class="part">Close the</span> <span class="part">loop.</span></span>
+        <span class="line"><span class="part">Take the</span> <span class="part"><em>block.</em></span></span>
+      </h1>
+      <p class="hero__lede">
+        ZoneRuns turns every run into a land grab. Loop back to where you started and <b>the hexes inside become yours</b>&nbsp;&mdash; until someone else runs through them.
+      </p>
+      <div class="hero__cta">
+        <a class="btn btn--primary" href="#early-access">
+          <svg class="ico" aria-hidden="true"><use href="#i-hex"/></svg>
+          Get early access
+        </a>
+        <a class="link-arrow" href="#how">See how a claim works <svg class="ico" aria-hidden="true"><use href="#i-arrow-down"/></svg></a>
+      </div>
+      <p class="hero__platforms">iOS &amp; Android &nbsp;·&nbsp; GPS loop capture &nbsp;·&nbsp; Live rival alerts</p>
+    </div>
+
+    <figure class="plate-wrap">
+      <div class="plate" id="plate">
+        <svg class="plate__map" id="plateMap" viewBox="0 0 720 760" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+
+        <div class="plate__ticks plate__ticks--x" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span></div>
+        <div class="plate__ticks plate__ticks--y" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+
+        <div class="plate__hud" id="hud" aria-hidden="true">
+          <div class="statbar glass">
+            <div class="stat"><b id="hKm">0.00</b><span>km</span></div>
+            <div class="stat"><b id="hTime">0:00</b><span>time</span></div>
+            <div class="stat"><b>5:24</b><span>pace/km</span></div>
+            <div class="stat"><b id="hHex">0</b><span>hexes</span></div>
+          </div>
+          <div class="pill" id="hPill">
+            <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg>
+            <span id="hPillText">Run back toward your start to close the loop</span>
+          </div>
+        </div>
+
+        <div class="banner glass" id="hBanner" aria-hidden="true">
+          <span class="banner__icon"><svg class="ico" aria-hidden="true"><use href="#i-warn"/></svg></span>
+          <span class="banner__text">
+            <b>Under attack!</b>
+            <span>mia_runs just took 9,700&nbsp;m² from you — and they're not stopping!</span>
+          </span>
+          <svg class="ico banner__x" aria-hidden="true"><use href="#i-x"/></svg>
+        </div>
+
+        <div class="toast glass" id="hToast" aria-hidden="true">
+          <span class="toast__num" id="hClaimed">0</span>
+          <span class="toast__lbl">hexes<br>claimed</span>
+          <span class="toast__coin"><svg class="ico" aria-hidden="true"><use href="#i-coin"/></svg>+1 coin</span>
+        </div>
+      </div>
+      <figcaption class="figcap"><span>Fig. 01</span> Loop closes. Hexes flip. A rival hits back.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ───────── The rulebook in numbers ───────── -->
+  <section class="spec" aria-labelledby="specTitle">
+    <h2 class="sr-only" id="specTitle">The rulebook in numbers</h2>
+    <div class="spec__grid">
+      <div class="spec__cell">
+        <p class="spec__label">Hex, flat to flat</p>
+        <p class="spec__num">≈75<small>m</small></p>
+        <p class="spec__desc">About a city block. The map is a grid of them.</p>
+      </div>
+      <div class="spec__cell">
+        <p class="spec__label">Close the loop</p>
+        <p class="spec__num">40<small>m</small></p>
+        <p class="spec__desc">Finish this close to where you started.</p>
+      </div>
+      <div class="spec__cell">
+        <p class="spec__label">Minimum claim</p>
+        <p class="spec__num">300<small>m²</small></p>
+        <p class="spec__desc">Tiny laps don't count. Think bigger.</p>
+      </div>
+      <div class="spec__cell">
+        <p class="spec__label">Claim runs</p>
+        <p class="spec__num">1<small>/ day</small></p>
+        <p class="spec__desc">One territory claim per player per day.</p>
+      </div>
+      <div class="spec__cell">
+        <p class="spec__label">Defense levels</p>
+        <p class="spec__num">10</p>
+        <p class="spec__desc">Fortify with coins until a hex is a fortress.</p>
+      </div>
+      <div class="spec__cell">
+        <p class="spec__label">Heroes × forms</p>
+        <p class="spec__num">25<small>×15</small></p>
+        <p class="spec__desc">Pixel-art heroes that evolve as you run.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── How a claim works ───────── -->
+  <section class="how section" id="how">
+    <header class="how__intro">
+      <p class="sec-label"><span>01</span> How a claim works</p>
+      <h2 class="h2">A claim is just a loop that comes back.</h2>
+    </header>
+
+    <div class="how__stage">
+      <div class="phone" id="phone" data-step="1" role="img" aria-label="ZoneRuns app screens showing a run in progress, a closed loop, and the post-run territory summary">
+        <div class="phone__scale">
+          <div class="device">
+            <div class="screen">
+              <svg class="screen__map" id="phoneMap" viewBox="0 0 368 822" preserveAspectRatio="xMidYMid slice"></svg>
+
+              <div class="statusbar"><span>9:41</span><i class="island"></i><span class="sb-right"><i></i><i class="batt"></i></span></div>
+
+              <div class="appbar">
+                <div class="appbar__title"><svg class="ico" aria-hidden="true"><use href="#i-run"/></svg>Run Tracker</div>
+                <div class="statbar glass">
+                  <div class="stat"><b id="pKm">0.00</b><span>km</span></div>
+                  <div class="stat"><b id="pTime">0:00</b><span>time</span></div>
+                  <div class="stat"><b>5:24</b><span>pace/km</span></div>
+                  <div class="stat"><b id="pHex">0</b><span>hexes</span></div>
+                </div>
+                <div class="pill" id="pPill">
+                  <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg>
+                  <span id="pPillText">Run back toward your start to close the loop</span>
+                </div>
+              </div>
+
+              <div class="controls glass" id="pControls">
+                <span class="gbtn gbtn--primary"><svg class="ico" aria-hidden="true"><use href="#i-pause"/></svg>Pause</span>
+                <span class="gbtn gbtn--danger" id="pStop"><svg class="ico" aria-hidden="true"><use href="#i-stop"/></svg>Stop &amp; save</span>
+              </div>
+
+              <nav class="tabbar glass" aria-hidden="true">
+                <span class="is-on"><svg class="ico"><use href="#i-run"/></svg>Run</span>
+                <span><svg class="ico"><use href="#i-feed"/></svg>Feed</span>
+                <span><svg class="ico"><use href="#i-list"/></svg>Runs</span>
+                <span><svg class="ico"><use href="#i-people"/></svg>Social</span>
+                <span><svg class="ico"><use href="#i-person"/></svg>Profile</span>
+              </nav>
+
+              <div class="sheet" id="pSheet">
+                <div class="sheet__head"><b>Post your run</b><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></div>
+                <div class="sheet__body">
+                  <div class="sheet__row">
+                    <b>Run summary</b>
+                    <span class="sheet__icons"><span><svg class="ico"><use href="#i-play"/></svg></span><span><svg class="ico"><use href="#i-share"/></svg></span></span>
+                  </div>
+                  <div class="rcard">
+                    <p class="rcard__date">EVENING RUN</p>
+                    <svg class="rcard__map" id="cardMap" viewBox="0 0 320 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+                    <p class="rcard__big"><b>1.94</b><span>KILOMETERS</span></p>
+                    <div class="statbar statbar--flat">
+                      <div class="stat"><b>10:29</b><span>time</span></div>
+                      <div class="stat"><b>5:24</b><span>pace/km</span></div>
+                    </div>
+                    <p class="rcard__coin"><svg class="ico" aria-hidden="true"><use href="#i-coin"/></svg>+1 coin</p>
+                    <div class="statbar statbar--flat">
+                      <div class="stat"><b id="pAreaOut">0.17 km²</b><span>territory gained</span></div>
+                    </div>
+                    <p class="rcard__brand"><svg class="ico" aria-hidden="true"><use href="#i-hex"/></svg>ZoneRuns</p>
+                  </div>
+                  <div class="field">
+                    <span class="field__label">What's on your mind?</span>
+                    <span class="field__input">Share your running experience...</span>
+                    <span class="field__count">0/280</span>
+                  </div>
+                  <span class="gbtn gbtn--primary gbtn--wide">Post to Feed</span>
+                  <p class="sheet__skip">Skip</p>
+                </div>
+              </div>
+
+              <i class="home-indicator"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="how__progress" aria-hidden="true"><span data-i="1">01</span><span data-i="2">02</span><span data-i="3">03</span></p>
+    </div>
+
+    <div class="how__steps">
+      <article class="step is-active" data-step="1">
+        <p class="step__no">Step 1</p>
+        <h3>Start a run, any run.</h3>
+        <p>Hit <b>Start run</b> and go. Distance, time, pace and the hexes you cross update live, and keep going with the screen locked. Pause or stop from the lock screen without unlocking.</p>
+        <p class="step__rule">Updates every 1.5 s · Lock-screen controls</p>
+      </article>
+
+      <article class="step" data-step="2">
+        <p class="step__no">Step 2</p>
+        <h3>Come back to where you began.</h3>
+        <p>The banner tells you how you're doing. End within <b>40&nbsp;m</b> of your start and it flips to <i>Loop closed — stop to claim territory!</i></p>
+        <p class="step__rule">≥ 300 m² enclosed · Not closed = no claim, nothing lost</p>
+      </article>
+
+      <article class="step" data-step="3">
+        <p class="step__no">Step 3</p>
+        <h3>Everything the loop touches is yours.</h3>
+        <p>Stop and save. Every hex inside the loop is captured at defense level 2, and the run pays out coins. One claim per day, so pick the route like it matters.</p>
+        <p class="step__rule">1 claim / day · Night runs start at level 3</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ───────── Compete (interactive hex board) ───────── -->
+  <section class="compete section" id="compete">
+    <header class="compete__intro">
+      <p class="sec-label"><span>02</span> Compete mode</p>
+      <h2 class="h2">Land is never won once. It's held.</h2>
+      <p class="lede">
+        Every hex has a defense level. A rival's run knocks it down one. Hit it at level 1 and it goes neutral, free for anyone. Run back over your own to heal it.
+      </p>
+      <p class="hint"><i></i>This is a live demo. Tap a hex, then send a run through it.</p>
+    </header>
+
+    <div class="arena">
+      <div class="arena__main">
+        <div class="board" id="board">
+          <svg id="boardSvg" viewBox="0 0 640 520" role="group" aria-label="Hex battle board"></svg>
+          <div class="board__coins glass"><svg class="ico" aria-hidden="true"><use href="#i-coin"/></svg><b id="coinsOut">240</b><span>coins</span></div>
+          <ul class="legend" aria-hidden="true">
+            <li><i class="sw sw--mine"></i>You</li>
+            <li><i class="sw sw--rival"></i>Rival</li>
+            <li><i class="sw sw--clan"></i>Clan</li>
+            <li><i class="sw sw--neutral"></i>Neutral</li>
+          </ul>
+        </div>
+        <div class="board__bar">
+          <button class="btn btn--outline" id="actRun" type="button" disabled>
+            <svg class="ico" aria-hidden="true"><use href="#i-run"/></svg>
+            <span id="actRunLabel">Run through it</span>
+          </button>
+          <label class="switch">
+            <input type="checkbox" id="nightToggle">
+            <span class="switch__track" aria-hidden="true"></span>
+            <span class="switch__text"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg>Night run <small>21:00–06:00</small></span>
+          </label>
+          <button class="textbtn" id="boardReset" type="button">Reset board</button>
+        </div>
+        <p class="board__log" id="boardLog" role="status" aria-live="polite">Pick a hex to start.</p>
+      </div>
+
+      <aside class="hexsheet" id="hexSheet" aria-label="Selected hex"></aside>
+    </div>
+  </section>
+
+  <!-- ───────── Rules of engagement (paper) ───────── -->
+  <section class="manual section" id="manual">
+    <div class="manual__inner">
+      <header class="manual__intro">
+        <p class="sec-label"><span>03</span> Rules of engagement</p>
+        <h2 class="h2">Five ways to make it personal.</h2>
+      </header>
+
+      <ol class="rules">
+        <li class="rule">
+          <span class="rule__no">01</span>
+          <h3 class="rule__name">Fortify</h3>
+          <p class="rule__desc">Spend coins to raise a hex's defense ceiling, one level at a time, up to 10. Each step costs double the last: 15 coins for level 3, 1,920 for level 10. Running over your own hex heals it back to that ceiling.</p>
+          <div class="rule__viz" aria-hidden="true">
+            <div class="ladder">
+              <span style="--h:14%"><b>15</b><i>L3</i></span>
+              <span style="--h:22%"><b>30</b><i>L4</i></span>
+              <span style="--h:31%"><b>60</b><i>L5</i></span>
+              <span style="--h:41%"><b>120</b><i>L6</i></span>
+              <span style="--h:52%"><b>240</b><i>L7</i></span>
+              <span style="--h:64%"><b>480</b><i>L8</i></span>
+              <span style="--h:77%"><b>960</b><i>L9</i></span>
+              <span style="--h:92%"><b>1,920</b><i>L10</i></span>
+            </div>
+          </div>
+        </li>
+
+        <li class="rule">
+          <span class="rule__no">02</span>
+          <h3 class="rule__name">Bounty</h3>
+          <p class="rule__desc">Put coins on enemy hexes. They're held in escrow, split across the hexes you pick, and paid out in full to whoever lands the finishing hit. Change your mind and an unclaimed bounty is refunded.</p>
+          <div class="rule__viz" aria-hidden="true">
+            <svg class="mini" viewBox="0 0 220 130">
+              <g class="mh mh--rival"><path d="M90.0 48.0 L80.0 65.3 L60.0 65.3 L50.0 48.0 L60.0 30.7 L80.0 30.7Z"/></g>
+              <g class="mh mh--rival"><path d="M120.0 65.3 L110.0 82.6 L90.0 82.6 L80.0 65.3 L90.0 48.0 L110.0 48.0Z"/></g>
+              <g class="mh mh--rival"><path d="M150.0 48.0 L140.0 65.3 L120.0 65.3 L110.0 48.0 L120.0 30.7 L140.0 30.7Z"/></g>
+              <g class="tag"><rect x="52" y="40" rx="3" width="36" height="16"/><text x="70" y="49" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
+              <g class="tag"><rect x="82" y="57.3" rx="3" width="36" height="16"/><text x="100" y="66.3" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
+              <g class="tag"><rect x="112" y="40" rx="3" width="36" height="16"/><text x="130" y="49" text-anchor="middle" dominant-baseline="central">◎ 40</text></g>
+              <text class="mini__cap" x="100" y="112" text-anchor="middle">120 COINS · 3 HEXES</text>
+            </svg>
+          </div>
+        </li>
+
+        <li class="rule">
+          <span class="rule__no">03</span>
+          <h3 class="rule__name">Ghost run</h3>
+          <p class="rule__desc">Once a day, take land without the victim getting an alert. They'll still see the map change. They just won't get the push.</p>
+          <div class="rule__viz" aria-hidden="true">
+            <span class="ghostpill"><svg class="ico"><use href="#i-ghost"/></svg>Ghost run — victims won't be notified</span>
+          </div>
+        </li>
+
+        <li class="rule">
+          <span class="rule__no">04</span>
+          <h3 class="rule__name">Night run</h3>
+          <p class="rule__desc">Hexes you take from neutral ground between 21:00 and 06:00 start at defense level 3 instead of 2. The streets are quieter, and so is the competition.</p>
+          <div class="rule__viz" aria-hidden="true">
+            <svg class="mini" viewBox="0 0 220 130">
+              <g class="mh mh--day"><path d="M64.0 55.0 L54.0 72.3 L34.0 72.3 L24.0 55.0 L34.0 37.7 L54.0 37.7Z"/></g>
+              <text class="mini__lv" x="44" y="55" text-anchor="middle">2</text>
+              <text class="mini__cap" x="44" y="98" text-anchor="middle">DAY</text>
+              <path class="mini__arrow" d="M80 55 H112 M104 49 L112 55 L104 61"/>
+              <g class="mh mh--night"><path d="M176.0 55.0 L166.0 72.3 L146.0 72.3 L136.0 55.0 L146.0 37.7 L166.0 37.7Z"/></g>
+              <text class="mini__lv mini__lv--night" x="156" y="55" text-anchor="middle">3</text>
+              <text class="mini__cap" x="156" y="98" text-anchor="middle">NIGHT</text>
+              <path class="mini__moon" d="M196 18a9 9 0 1 1-9 9 7 7 0 0 0 9-9z"/>
+            </svg>
+          </div>
+        </li>
+
+        <li class="rule">
+          <span class="rule__no">05</span>
+          <h3 class="rule__name">Clans &amp; weekly boards</h3>
+          <p class="rule__desc">Run under a clan's flag and the hexes you take belong to it. Any member can heal or fortify them. Boards rank net area this week, claimed minus what was taken from you, and reset every 7 days so latecomers aren't locked out by whoever ran first.</p>
+          <div class="rule__viz" aria-hidden="true">
+            <div class="board-mini">
+              <p class="board-mini__head"><span>This week</span><span>Net area</span></p>
+              <p class="board-mini__row"><b>1</b><span>Night Owls</span><i style="--w:92%"></i><em>+41</em></p>
+              <p class="board-mini__row"><b>2</b><span>Riverside RC</span><i style="--w:64%"></i><em>+28</em></p>
+              <p class="board-mini__row"><b>3</b><span>Hill Crew</span><i style="--w:38%"></i><em>+17</em></p>
+              <p class="board-mini__note">Sample data</p>
+            </div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ───────── Heroes ───────── -->
+  <section class="heroes section" id="heroes">
+    <header class="heroes__intro">
+      <p class="sec-label"><span>04</span> Heroes</p>
+      <h2 class="h2">Every run feeds a hero.</h2>
+      <p class="lede">
+        Coins from your runs unlock pixel-art heroes and evolve them through 15 forms. A run under 5&nbsp;km pays 1&nbsp;coin and every further 5&nbsp;km adds another; a daily login bonus grows across a 7-day streak. Everyone starts with one hero, picked at random.
+      </p>
+    </header>
+
+    <div class="heroes__grid">
+      <div class="stage" id="stage">
+        <div class="stage__art" id="stageArt"><img id="stageImg" alt="" width="320" height="320"></div>
+        <div class="stage__meta">
+          <span class="rarity" id="stageRarity">Legendary</span>
+          <h3 id="stageName">Phoenix</h3>
+          <p class="stage__unlock" id="stageUnlock">Unlock · 300 coins</p>
+        </div>
+        <div class="stage__ctrl">
+          <label class="stage__form" for="tier">Form <output id="tierOut" for="tier">01</output><span> / 15</span></label>
+          <input class="slider" type="range" id="tier" min="1" max="15" step="1" value="1" aria-describedby="tierCost">
+          <p class="stage__cost" id="tierCost">Next form · 12 coins</p>
+          <p class="stage__total">Maxing one hero out takes <b>350 coins</b> on top of its unlock price.</p>
+        </div>
+      </div>
+
+      <div class="roster-wrap">
+        <div class="roster" id="roster" role="group" aria-label="Choose a hero"></div>
+        <ul class="prices" aria-label="Unlock price by rarity">
+          <li><i style="--c:#9BA28A"></i>Common <b>30</b></li>
+          <li><i style="--c:#5B9FE8"></i>Rare <b>75</b></li>
+          <li><i style="--c:#B35BE8"></i>Epic <b>150</b></li>
+          <li><i style="--c:#E8C23C"></i>Legendary <b>300</b></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── Tracker basics ───────── -->
+  <section class="tracker section" id="tracker">
+    <div class="tracker__grid">
+      <div class="tracker__copy">
+        <p class="sec-label"><span>05</span> Underneath it all</p>
+        <h2 class="h2">Still a proper run tracker.</h2>
+        <ol class="feats">
+          <li><span>01</span><div><h3>Live tracking</h3><p>Distance, time, pace and hexes crossed, refreshed every 1.5 seconds.</p></div></li>
+          <li><span>02</span><div><h3>Screen off, still running</h3><p>Background tracking on iOS and Android, with pause and stop on the lock screen.</p></div></li>
+          <li><span>03</span><div><h3>Works with no signal</h3><p>Finish a run offline and it's queued, then synced when you're back online.</p></div></li>
+          <li><span>04</span><div><h3>Feed, friends, chat</h3><p>Post a run with its route map. Follow friends, like, comment, message, and talk tactics in clan chat.</p></div></li>
+          <li><span>05</span><div><h3>Replay cards</h3><p>Every claimed loop gets a short animated replay you can share as an image.</p></div></li>
+        </ol>
+      </div>
+
+      <div class="analytics glass-solid" aria-label="Analytics screen preview">
+        <div class="analytics__head">
+          <b>Analytics</b>
+          <span class="tag-sample">Sample data</span>
+        </div>
+        <div class="analytics__stats statbar statbar--flat">
+          <div class="stat"><b>14.2</b><span>longest run km</span></div>
+          <div class="stat"><b>1:21:07</b><span>longest time</span></div>
+          <div class="stat"><b>186</b><span>runs this year</span></div>
+        </div>
+        <div class="heat" id="heat" aria-hidden="true"></div>
+        <div class="heat__legend" aria-hidden="true">
+          <span>Less</span><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>More</span>
+          <em>Activity calendar · full year</em>
+        </div>
+        <div class="analytics__export"><span class="gbtn gbtn--primary"><svg class="ico" aria-hidden="true"><use href="#i-share"/></svg>Export recap</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── CTA ───────── -->
+  <section class="cta" id="early-access">
+    <div class="cta__inner">
+      <p class="sec-label sec-label--center"><span>06</span> Early access</p>
+      <h2 class="cta__title">Get on<br>the map.</h2>
+      <p class="cta__lede">
+        ZoneRuns is in private testing on iOS and Android. Store links will appear right here when the first public build ships.
+      </p>
+      <div class="cta__buttons">
+        <a class="store" id="storeIos" href="#early-access" aria-disabled="true">
+          <span class="store__k">iPhone</span>
+          <span class="store__v">TestFlight · soon</span>
+        </a>
+        <a class="store" id="storeAndroid" href="#early-access" aria-disabled="true">
+          <span class="store__k">Android</span>
+          <span class="store__v">Google Play · soon</span>
+        </a>
+      </div>
+      <a class="link-arrow link-arrow--center" href="https://github.com/slovinian890/zoneruns_mobile" target="_blank" rel="noopener">
+        <svg class="ico" aria-hidden="true"><use href="#i-github"/></svg> Follow the build on GitHub <svg class="ico" aria-hidden="true"><use href="#i-arrow-right"/></svg>
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <a class="brand" href="#top" aria-label="ZoneRuns — back to top">
+    <svg class="brand__mark" aria-hidden="true"><use href="#logo"/></svg>
+    <span class="brand__word">ZoneRuns</span>
+  </a>
+  <p>Built with Expo, React Native, Supabase and PostGIS.</p>
+  <p>© 2026 ZoneRuns</p>
+</footer>
+
+<script src="js/main.js" defer></script>
+</body>
+</html>
