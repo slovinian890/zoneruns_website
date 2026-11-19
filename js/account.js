@@ -92,6 +92,11 @@
     d.setDate(d.getDate() - day);
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   };
+  const daysAgoISO = (n) => {
+    const d = new Date(); d.setDate(d.getDate() - n);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  };
+  const dayKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   const coinLabel = (t) => ({
     login: 'Daily reward', fortify: 'Hex fortified', bounty_place: 'Bounty placed', bounty_payout: 'Bounty payout', bounty_refund: 'Bounty refunded',
   }[t.kind] || `${num(t.distance_km).toFixed(1)} km run`);
@@ -242,6 +247,7 @@
       weekly: client.rpc('get_weekly_leaderboard', { p_limit: 100 }),
       runs: client.from('runs').select('id,title,run_date,distance_km,duration,pace').eq('user_id', uid).order('run_date', { ascending: false }).order('created_at', { ascending: false }).limit(5),
       weekRuns: client.from('runs').select('distance_km').eq('user_id', uid).gte('run_date', mondayISO()),
+      yearRuns: client.from('runs').select('run_date,distance_km,duration').eq('user_id', uid).gte('run_date', daysAgoISO(370)).order('run_date'),
       badges: client.from('user_achievements').select('earned_at, achievements(title,category)').eq('user_id', uid).order('earned_at', { ascending: false }).limit(6),
       badgeCount: client.from('user_achievements').select('id', { count: 'exact', head: true }).eq('user_id', uid),
       badgeTotal: client.from('achievements').select('id', { count: 'exact', head: true }),
@@ -288,14 +294,188 @@
     h('p', { class: 'spec__num' }, value, unit ? h('small', { text: unit }) : null),
     h('p', { class: 'spec__desc', text: desc }));
 
+  /* ───────────── Activity card: a real GitHub-style calendar, month or year, shareable as an image ───────────── */
+  const roundRectPath = (ctx, x, y, w, hh, r) => {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + hh, r); ctx.arcTo(x + w, y + hh, x, y + hh, r);
+    ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  };
+  const HEAT_COLORS = ['rgba(255,255,255,0.06)', 'rgba(201,213,74,0.2)', 'rgba(201,213,74,0.42)', 'rgba(201,213,74,0.7)', '#C9D54A'];
+
+  const buildActivityCard = (d, profile) => {
+    const dayMap = new Map();
+    (d.yearRuns || []).forEach((r) => {
+      const day = parseDay(r.run_date); if (!day) return;
+      const key = dayKey(day);
+      const cur = dayMap.get(key) || { km: 0, sec: 0, n: 0 };
+      cur.km += num(r.distance_km); cur.sec += intervalSeconds(r.duration); cur.n += 1;
+      dayMap.set(key, cur);
+    });
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const lvOf = (km, maxKm) => (km <= 0 || maxKm <= 0 ? 0 : km / maxKm < 0.25 ? 1 : km / maxKm < 0.5 ? 2 : km / maxKm < 0.75 ? 3 : 4);
+    const yearRange = () => {
+      const endDow = (today.getDay() + 6) % 7;                         // Mon=0..Sun=6
+      const start = new Date(today); start.setDate(start.getDate() - endDow - 7 * 51);
+      const days = []; const cur = new Date(start);
+      while (cur <= today) { days.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
+      return days;
+    };
+    const monthRange = () => {
+      const first = new Date(today.getFullYear(), today.getMonth(), 1);
+      const days = []; const cur = new Date(first);
+      while (cur.getMonth() === first.getMonth()) { days.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
+      return days;
+    };
+
+    let heatViewMode = 'year';
+    const btnMonth = h('button', { type: 'button', 'aria-pressed': 'false', text: 'Month' });
+    const btnYear = h('button', { type: 'button', 'aria-pressed': 'true', text: 'Year' });
+    const statA = h('b', { text: '0.0' }), statB = h('b', { text: '—' }), statC = h('b', { text: '0' });
+    const statCLabel = h('span', { text: 'runs this year' });
+    const activityStats = h('div', { class: 'statbar statbar--flat acct__activity-stats' },
+      h('div', { class: 'stat' }, statA, h('span', { text: 'longest run km' })),
+      h('div', { class: 'stat' }, statB, h('span', { text: 'longest time' })),
+      h('div', { class: 'stat' }, statC, statCLabel));
+    const heatGrid = h('div', { class: 'heat' });
+    const heatCap = h('em', {});
+    const legend = h('div', { class: 'heat__legend' },
+      h('span', { text: 'Less' }), h('i', { class: 'l0' }), h('i', { class: 'l1' }), h('i', { class: 'l2' }), h('i', { class: 'l3' }), h('i', { class: 'l4' }), h('span', { text: 'More' }), heatCap);
+    const exportNote = h('p', { class: 'acct__activity-note', hidden: true });
+    const exportBtn = h('button', { type: 'button', class: 'gbtn gbtn--primary' }, icon('share'), 'Share recap');
+
+    const paint = () => {
+      const days = heatViewMode === 'year' ? yearRange() : monthRange();
+      const maxKm = days.reduce((m, dd) => Math.max(m, (dayMap.get(dayKey(dd)) || { km: 0 }).km), 0);
+      const rows = (d.yearRuns || []).filter((r) => { const dd = parseDay(r.run_date); return dd && days.some((x) => dayKey(x) === dayKey(dd)); });
+      statA.textContent = rows.reduce((m, r) => Math.max(m, num(r.distance_km)), 0).toFixed(1);
+      const longestSec = rows.reduce((m, r) => Math.max(m, intervalSeconds(r.duration)), 0);
+      statB.textContent = longestSec ? fmtDuration(longestSec) : '—';
+      statC.textContent = String(rows.length);
+      statCLabel.textContent = heatViewMode === 'year' ? 'runs this year' : 'runs this month';
+
+      heatGrid.replaceChildren();
+      if (heatViewMode === 'year') {
+        heatGrid.className = 'heat';
+        days.forEach((dd) => {
+          const rec = dayMap.get(dayKey(dd)), lv = lvOf(rec ? rec.km : 0, maxKm);
+          const c = document.createElement('i');
+          if (lv) c.className = `l${lv}`;
+          c.title = `${dd.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}${rec ? ` · ${rec.km.toFixed(1)} km` : ' · no run'}`;
+          heatGrid.appendChild(c);
+        });
+        heatCap.textContent = 'Activity calendar · full year';
+      } else {
+        heatGrid.className = 'heat-month';
+        ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach((w) => heatGrid.appendChild(h('span', { class: 'hd', text: w })));
+        const pad = (days[0].getDay() + 6) % 7;
+        for (let i = 0; i < pad; i++) heatGrid.appendChild(h('span', { class: 'dc is-pad' }));
+        days.forEach((dd) => {
+          const rec = dayMap.get(dayKey(dd)), lv = lvOf(rec ? rec.km : 0, maxKm);
+          heatGrid.appendChild(h('span', { class: `dc${lv ? ` l${lv}` : ''}`, title: rec ? `${rec.km.toFixed(1)} km` : 'No run', text: String(dd.getDate()) }));
+        });
+        heatCap.textContent = `Activity calendar · ${today.toLocaleDateString('en-GB', { month: 'long' })}`;
+      }
+    };
+    const setView = (v) => {
+      if (v === heatViewMode) return;
+      heatViewMode = v;
+      btnMonth.setAttribute('aria-pressed', String(v === 'month'));
+      btnYear.setAttribute('aria-pressed', String(v === 'year'));
+      exportNote.hidden = true;
+      paint();
+    };
+    btnMonth.addEventListener('click', () => setView('month'));
+    btnYear.addEventListener('click', () => setView('year'));
+
+    const buildRecapCanvas = () => {
+      const W = 1080, H = 1080;
+      const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#10140B'; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = 'rgba(236,234,214,0.14)'; ctx.lineWidth = 2; ctx.strokeRect(20, 20, W - 40, H - 40);
+      ctx.fillStyle = '#C9D54A'; ctx.font = '700 34px Arial, sans-serif'; ctx.fillText('ZoneRuns', 64, 108);
+      ctx.fillStyle = 'rgba(236,234,214,0.6)'; ctx.font = '500 22px monospace';
+      ctx.fillText(heatViewMode === 'year' ? `${today.getFullYear()} recap` : today.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), 64, 142);
+      ctx.fillStyle = '#ECEAD6'; ctx.font = '700 42px Arial, sans-serif';
+      ctx.fillText(`@${profile.username || profile.display_name || 'runner'}`, 64, 200);
+
+      const statsY = 300, colW = (W - 128) / 3;
+      [[statA.textContent, 'LONGEST RUN KM'], [statB.textContent, 'LONGEST TIME'], [statC.textContent, statCLabel.textContent.toUpperCase()]]
+        .forEach(([val, lab], i) => {
+          const x = 64 + colW * i + colW / 2;
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#ECEAD6'; ctx.font = '700 54px Arial, sans-serif'; ctx.fillText(val, x, statsY);
+          ctx.fillStyle = 'rgba(236,234,214,0.45)'; ctx.font = '600 16px monospace'; ctx.fillText(lab, x, statsY + 32);
+        });
+      ctx.textAlign = 'left';
+
+      const days = heatViewMode === 'year' ? yearRange() : monthRange();
+      const maxKm = days.reduce((m, dd) => Math.max(m, (dayMap.get(dayKey(dd)) || { km: 0 }).km), 0);
+      const gridX = 64, gridY = 400, gridW = W - 128;
+      if (heatViewMode === 'year') {
+        const cols = Math.ceil(days.length / 7), gap = 6;
+        const cell = Math.min((gridW - gap * (cols - 1)) / cols, 26);
+        days.forEach((dd, i) => {
+          const col = Math.floor(i / 7), row = i % 7, lv = lvOf((dayMap.get(dayKey(dd)) || { km: 0 }).km, maxKm);
+          ctx.fillStyle = HEAT_COLORS[lv];
+          roundRectPath(ctx, gridX + col * (cell + gap), gridY + row * (cell + gap), cell, cell, 4); ctx.fill();
+        });
+      } else {
+        const pad = (days[0].getDay() + 6) % 7, gap = 10, cols = 7;
+        const cell = (gridW - gap * (cols - 1)) / cols;
+        days.forEach((dd, i) => {
+          const idx = i + pad, col = idx % 7, row = Math.floor(idx / 7), lv = lvOf((dayMap.get(dayKey(dd)) || { km: 0 }).km, maxKm);
+          ctx.fillStyle = HEAT_COLORS[lv];
+          roundRectPath(ctx, gridX + col * (cell + gap), gridY + row * (cell + gap), cell, cell, 8); ctx.fill();
+          ctx.fillStyle = lv >= 3 ? '#12160A' : 'rgba(236,234,214,0.6)'; ctx.font = '600 16px monospace'; ctx.textAlign = 'center';
+          ctx.fillText(String(dd.getDate()), gridX + col * (cell + gap) + cell / 2, gridY + row * (cell + gap) + cell / 2 + 6);
+          ctx.textAlign = 'left';
+        });
+      }
+      ctx.fillStyle = 'rgba(236,234,214,0.4)'; ctx.font = '500 20px monospace';
+      ctx.fillText(location.host || 'zoneruns.app', 64, H - 56);
+      return canvas;
+    };
+
+    exportBtn.addEventListener('click', () => {
+      exportNote.hidden = true;
+      const canvas = buildRecapCanvas();
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `zoneruns-${heatViewMode}-recap.png`, { type: 'image/png' });
+        try {
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'My ZoneRuns recap', text: 'My ZoneRuns activity, captured in the app.' });
+            return;
+          }
+        } catch (e) { if (e && e.name === 'AbortError') return; }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = file.name; a.click();
+        URL.revokeObjectURL(url);
+        exportNote.hidden = false;
+        exportNote.textContent = navigator.share
+          ? 'Saved as an image — open it from your downloads to share.'
+          : 'Saved as an image — open Instagram and share it from your gallery.';
+      }, 'image/png');
+    });
+
+    paint();
+    return h('article', { class: 'acct__card acct__activity' },
+      h('header', { class: 'acct__card-head' }, h('span', { text: 'Activity' }), h('div', { class: 'seg', role: 'group', 'aria-label': 'Activity range' }, btnMonth, btnYear)),
+      activityStats, heatGrid, legend,
+      h('div', { class: 'acct__activity-export' }, exportBtn, exportNote));
+  };
+
   const render = (d, client) => {
     const body = $('#acctBody');
     const profile = d.profile || {}, stats = d.stats || {};
-    const coins = num(stats.coins);
+    let coins = num(stats.coins);
     const display = profile.display_name || profile.username || 'Runner';
     setChip(coins, profile.username || null);
 
     /* identity + coins */
+    const coinsNEl = h('p', { class: 'acct__coins-n', text: nf.format(coins) });
+    const setCoins = (n) => { coins = n; coinsNEl.textContent = nf.format(n); setChip(n, profile.username || null); };
     const avatarUrl = profile.avatar_url ? safeImg(profile.avatar_url) : null;
     const avatar = h('span', { class: 'acct__avatar' }, h('span', {},
       avatarUrl ? h('img', { src: avatarUrl, alt: '', width: 104, height: 104, referrerpolicy: 'no-referrer', decoding: 'async' }) : h('b', { text: display.trim().charAt(0).toUpperCase() || 'Z' })));
@@ -307,7 +487,7 @@
           profile.username ? h('span', { text: `@${profile.username}` }) : null,
           profile.created_at ? h('span', { text: `Member since ${fmtMonthYear(profile.created_at)}` }) : null)),
       h('div', { class: 'acct__coins' },
-        h('p', { class: 'acct__coins-n', text: nf.format(coins) }),
+        coinsNEl,
         h('p', { class: 'acct__coins-l' }, icon('coin'), 'Coins'),
         stats.login_streak ? h('p', { class: 'acct__coins-s', text: `Login streak · ${stats.login_streak} day${stats.login_streak === 1 ? '' : 's'}` }) : null));
 
@@ -374,21 +554,103 @@
         }))
       : empty('No coin activity yet.'));
 
+    /* activity card: a real GitHub-style calendar (month/year) built from your own runs, shareable as an image */
+    const activityCard = buildActivityCard(d, profile);
+
     dropMap();
     const glEl = h('div', { class: 'acct__gl', role: 'region', 'aria-label': 'Interactive map of your hexes' });
     const zIn = h('button', { type: 'button', 'aria-label': 'Zoom in', text: '+' }), zOut = h('button', { type: 'button', 'aria-label': 'Zoom out', text: '−' });
     const note = h('p', { class: 'acct__map-note', hidden: true }), capB = h('b'), capS = h('span');
-    const mapHost = h('div', { class: 'acct__map' }, h('div', { class: 'acct__mapview' }, glEl, h('div', { class: 'acct__zoom' }, zIn, zOut)), note, h('p', { class: 'acct__map-cap' }, capB, capS));
+    const hpTitle = h('b', {}), hpSub = h('span', {});
+    const hpMsg = h('p', { class: 'acct__hp-msg', hidden: true });
+    const hpPlace = h('button', { type: 'button', class: 'btn btn--primary btn--sm acct__hp-btn' }, icon('bounty'), `Place bounty · ${BOUNTY_STEP} coins`);
+    const hpCancel = h('button', { type: 'button', class: 'textbtn', hidden: true, text: 'Cancel my bounty' });
+    const hpClose = h('button', { type: 'button', class: 'acct__hp-close', 'aria-label': 'Close hex info', text: '×' });
+    const hexPanel = h('div', { class: 'acct__hexpanel', hidden: true },
+      h('div', { class: 'acct__hp-head' }, h('div', {}, hpTitle, hpSub), hpClose),
+      hpMsg,
+      h('div', { class: 'acct__hp-actions' }, hpPlace, hpCancel));
+    const mapHost = h('div', { class: 'acct__map' }, h('div', { class: 'acct__mapview' }, glEl, h('div', { class: 'acct__zoom' }, zIn, zOut), hexPanel), note, h('p', { class: 'acct__map-cap' }, capB, capS));
     const btnRun = h('button', { type: 'button', 'aria-pressed': 'true', text: 'Last claim' });
     const btnHere = h('button', { type: 'button', 'aria-pressed': 'false', text: 'My location' });
     const mapCard = h('article', { class: 'acct__card' },
       h('header', { class: 'acct__card-head' }, h('span', { text: 'Map' }), h('div', { class: 'seg', role: 'group', 'aria-label': 'Map view' }, btnRun, btnHere)),
       mapHost,
-      h('ul', { class: 'legend legend--inline' }, [['mine', 'You'], ['rival', 'Others'], ['clan', 'Clan'], ['neutral', 'Neutral']].map(([c, l]) => h('li', {}, h('i', { class: `sw sw--${c}` }), l))));
+      h('ul', { class: 'legend legend--inline' }, [['mine', 'You'], ['rival', 'Others'], ['clan', 'Clan'], ['neutral', 'Neutral']].map(([c, l]) => h('li', {}, h('i', { class: `sw sw--${c}` }), l))),
+      h('p', { class: 'acct__hp-hint' }, 'Tap a hex that isn’t yours to put a bounty on it.'));
 
     const mv = { kind: 'run', title: '', sub: '', mine: 0, apply: null };
     let routeP = null, hexTimer = 0, hexToken = 0, viewToken = 0, mapP = null;
     const setNote = (text) => { note.textContent = text || ''; note.hidden = !text; };
+
+    /* ───────────── Bounties: tap a hex that isn't yours ───────────── */
+    let currentFc = EMPTY, selected = null, bountyBusy = false;
+    const sessionBounty = new Map();                                 // "col,row" -> coins placed this session (so we can offer Cancel)
+    const hexKey = (hc, hr) => `${hc},${hr}`;
+    const ownerLabel = (k) => (k === 'c' ? 'Clan hex' : 'Rival hex');
+
+    const renderPanel = () => {
+      if (!selected) { hexPanel.hidden = true; return; }
+      const { hc, hr, k, lv, b } = selected;
+      hpTitle.textContent = ownerLabel(k);
+      hpSub.textContent = `Level ${lv} · ${b > 0 ? `${nf.format(b)} coins riding on it` : 'no bounty yet'}`;
+      const mine = sessionBounty.get(hexKey(hc, hr)) || 0;
+      hpPlace.disabled = bountyBusy || coins < BOUNTY_STEP;
+      hpCancel.hidden = mine <= 0;
+      hpCancel.disabled = bountyBusy;
+      hexPanel.hidden = false;
+    };
+    const deselectHex = () => { selected = null; if (activeMap) activeMap.getSource('sel').setData(EMPTY); renderPanel(); };
+    const selectHex = (feature) => {
+      const p = feature.properties;
+      selected = { hc: p.hc, hr: p.hr, k: p.k, lv: num(p.lv), b: num(p.b) };
+      hpMsg.hidden = true; hpMsg.textContent = '';
+      if (activeMap) activeMap.getSource('sel').setData({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: feature.geometry, properties: {} }] });
+      renderPanel();
+    };
+    const patchFeature = (hc, hr, patch) => {
+      const f = currentFc.features.find((x) => x.properties.hc === hc && x.properties.hr === hr);
+      if (f) Object.assign(f.properties, patch);
+      if (activeMap) activeMap.getSource('hexes').setData(currentFc);
+    };
+    const wireHexClicks = (map) => {
+      const layers = ['hx-o-fill', 'hx-c-fill'];
+      map.on('click', (e) => {
+        const feats = map.queryRenderedFeatures(e.point, { layers });
+        if (feats.length) selectHex(feats[0]); else deselectHex();
+      });
+      map.on('mousemove', (e) => { map.getCanvas().style.cursor = map.queryRenderedFeatures(e.point, { layers }).length ? 'pointer' : ''; });
+    };
+    hpClose.addEventListener('click', deselectHex);
+    hpPlace.addEventListener('click', async () => {
+      if (!selected || bountyBusy || coins < BOUNTY_STEP) return;
+      const { hc, hr } = selected;
+      bountyBusy = true; renderPanel();
+      try {
+        const { error } = await client.rpc('place_bounty', { p_hex_col: hc, p_hex_row: hr, p_amount: BOUNTY_STEP });
+        if (error) throw error;
+        setCoins(coins - BOUNTY_STEP);
+        selected.b += BOUNTY_STEP;
+        sessionBounty.set(hexKey(hc, hr), (sessionBounty.get(hexKey(hc, hr)) || 0) + BOUNTY_STEP);
+        patchFeature(hc, hr, { b: selected.b });
+      } catch (err) { hpMsg.hidden = false; hpMsg.textContent = friendly(err); }
+      finally { bountyBusy = false; renderPanel(); }
+    });
+    hpCancel.addEventListener('click', async () => {
+      if (!selected || bountyBusy) return;
+      const { hc, hr } = selected, mine = sessionBounty.get(hexKey(hc, hr)) || 0;
+      if (!mine) return;
+      bountyBusy = true; renderPanel();
+      try {
+        const { error } = await client.rpc('cancel_bounty', { p_hex_col: hc, p_hex_row: hr });
+        if (error) throw error;
+        setCoins(coins + mine);
+        selected.b = Math.max(0, selected.b - mine);
+        sessionBounty.delete(hexKey(hc, hr));
+        patchFeature(hc, hr, { b: selected.b });
+      } catch (err) { hpMsg.hidden = false; hpMsg.textContent = friendly(err); }
+      finally { bountyBusy = false; renderPanel(); }
+    });
     const getRoute = () => routeP || (routeP = (async () => {
       const latest = (d.runs || [])[0];
       if (!latest) return null;
@@ -417,7 +679,13 @@
         if (my !== hexToken || map !== activeMap) return;
         setNote('');
         const { fc, mine } = hexCollection(rows, d.profile || {});
+        currentFc = fc;
         map.getSource('hexes').setData(fc); glEl.dataset.hexes = String(fc.features.length); mv.mine = mine; updateCaption(map);
+        if (selected) {
+          const match = fc.features.find((x) => x.properties.hc === selected.hc && x.properties.hr === selected.hr);
+          if (match) { selected.lv = num(match.properties.lv); selected.b = num(match.properties.b); renderPanel(); }
+          else deselectHex();
+        }
       }, 220);
     };
     const ensureMap = (center) => mapP || (mapP = (async () => {
@@ -432,6 +700,7 @@
       activeMap = map; glEl.__map = map;
       await new Promise((ok, no) => { map.once('load', ok); map.once('error', (e) => { if (!map.loaded()) no(e && e.error); }); });
       addMapLayers(map);
+      wireHexClicks(map);
       if (glEl.clientWidth < 600) { const a = glEl.querySelector('.maplibregl-ctrl-attrib'); if (a) a.classList.remove('maplibregl-compact-show'); }   // small screens: credit starts collapsed behind the (i)
       map.on('moveend', () => refreshHexes(map));
       map.on('resize', () => refreshHexes(map));
@@ -445,6 +714,7 @@
     async function showMap(kind) {
       const my = ++viewToken, here = kind === 'here';
       mv.kind = kind; mv.mine = 0;
+      deselectHex();
       btnRun.setAttribute('aria-pressed', String(!here)); btnHere.setAttribute('aria-pressed', String(here));
       setNote(here ? 'Finding you… allow location access when your browser asks.' : '');
       try {
@@ -496,6 +766,7 @@
       head, stat, goalRow,
       wk ? h('p', { class: 'acct__week', text: `This week’s net area: ${wk.net_m2 >= 0 ? '+' : '−'}${fmtArea(Math.abs(num(wk.net_m2))).join(' ')}  ·  rank #${wk.rank}` }) : null,
       h('div', { class: 'acct__grid' }, mapCard, heroCard),
+      activityCard,
       h('div', { class: 'acct__cols' }, runsCard, badgesCard, coinsCard),
       h('p', { class: 'acct__foot', text: 'Run in the app and it all updates here — territory, coins and hero forms are the same data.' }),
     ].filter(Boolean));
@@ -510,6 +781,7 @@
   const ML = { js: 'assets/vendor/maplibre-gl-csp-4.7.1.js', css: 'assets/vendor/maplibre-gl-4.7.1.css', worker: 'assets/vendor/maplibre-gl-csp-worker-4.7.1.js' };
   const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
   const APP_ZOOM = 15, MIN_Z = 14, MAX_Z = 17, LABEL_Z = 17;
+  const BOUNTY_STEP = 50;   // coins per tap — mirrors the Compete demo board
   let mlPromise = null, activeMap = null;
   const loadMaplibre = () => mlPromise || (mlPromise = new Promise((resolve, reject) => {
     if (window.maplibregl) return resolve(window.maplibregl);
@@ -527,7 +799,7 @@
   const kindIs = (k) => ['==', ['get', 'k'], k];
 
   const addMapLayers = (map) => {
-    ['hexes', 'route', 'you'].forEach((id) => map.addSource(id, { type: 'geojson', data: EMPTY }));
+    ['hexes', 'route', 'you', 'sel'].forEach((id) => map.addSource(id, { type: 'geojson', data: EMPTY }));
     const L = (o) => map.addLayer(o);
     // everyone else first …
     L({ id: 'hx-n', type: 'line', source: 'hexes', filter: kindIs('n'), paint: { 'line-color': 'rgba(236,234,214,0.2)', 'line-width': 1 } });
@@ -544,12 +816,18 @@
     L({ id: 'you-acc', type: 'fill', source: 'you', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#C9D54A', 'fill-opacity': 0.1 } });
     L({ id: 'you-halo', type: 'circle', source: 'you', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 17, 'circle-color': '#C9D54A', 'circle-opacity': 0.28 } });
     L({ id: 'you-dot', type: 'circle', source: 'you', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 7, 'circle-color': '#C9D54A', 'circle-stroke-color': '#0A0D07', 'circle-stroke-width': 2.5 } });
-    L({ id: 'hx-level', type: 'symbol', source: 'hexes', minzoom: LABEL_Z, filter: ['all', ['!=', ['get', 'k'], 'n'], ['==', ['get', 'b'], 0]],
-      layout: { 'text-field': ['to-string', ['get', 'lv']], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-allow-overlap': true },
+    // defense level: every captured hex (mine, clan or rival), nudged up when a bounty tag sits below it
+    L({ id: 'hx-level', type: 'symbol', source: 'hexes', minzoom: LABEL_Z, filter: ['!=', ['get', 'k'], 'n'],
+      layout: {
+        'text-field': ['to-string', ['get', 'lv']], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-allow-overlap': true,
+        'text-offset': ['case', ['>', ['get', 'b'], 0], ['literal', [0, -0.75]], ['literal', [0, 0]]],
+      },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.6 } });
     L({ id: 'hx-bounty', type: 'symbol', source: 'hexes', filter: ['>', ['get', 'b'], 0],
-      layout: { 'text-field': ['concat', '◎ ', ['to-string', ['get', 'b']]], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-allow-overlap': true },
+      layout: { 'text-field': ['concat', '◎ ', ['to-string', ['get', 'b']]], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-allow-overlap': true, 'text-offset': ['literal', [0, 0.85]] },
       paint: { 'text-color': '#12160A', 'text-halo-color': '#E8C23C', 'text-halo-width': 4 } });
+    // selection outline — the hex a tap just picked
+    L({ id: 'sel-line', type: 'line', source: 'sel', layout: { 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 3, 'line-dasharray': [2, 1.4], 'line-opacity': 0.95 } });
   };
 
   /* Supabase's API returns at most 1000 rows per request, and get_hexes_in_bounds returns one row per hex in
@@ -595,7 +873,8 @@
       const ally = r.user_id && (r.owner_group_id ? r.owner_group_id === me.active_group_id : r.user_id === me.id);
       if (ally) mine += 1;
       features.push({ type: 'Feature', geometry: g, properties: {
-        k: ally ? 'm' : r.owner_group_id ? 'c' : r.user_id ? 'o' : 'n', lv: num(r.level) || 1, b: num(r.bounty_total), col: colorOk(r.trail_color) || '#C8572D' } });
+        k: ally ? 'm' : r.owner_group_id ? 'c' : r.user_id ? 'o' : 'n', lv: num(r.level) || 1, b: num(r.bounty_total), col: colorOk(r.trail_color) || '#C8572D',
+        hc: r.hex_col, hr: r.hex_row } });
     });
     return { fc: { type: 'FeatureCollection', features }, mine };
   };
