@@ -226,6 +226,7 @@
   /* ───────────── Auth state ───────────── */
   function onAuth(event, sess) {
     session = sess;
+    root.classList.toggle('is-signed-in', !!sess);   // signed in: the marketing/demo sections step aside for the real sheet
     if (!sess) { loaded = { uid: null, at: 0 }; dropMap(); section.hidden = true; $('#acctBody').replaceChildren(); resetChip(); return; }
     if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return;
     if (loaded.uid === sess.user.id && Date.now() - loaded.at < 60000) return;   // SIGNED_IN also fires on tab refocus
@@ -293,6 +294,87 @@
     h('p', { class: 'spec__label', text: label }),
     h('p', { class: 'spec__num' }, value, unit ? h('small', { text: unit }) : null),
     h('p', { class: 'spec__desc', text: desc }));
+
+  /* ───────────── Leaderboard card: real territory / weekly rankings, already fetched for the stat row ───────────── */
+  const buildLeaderboardCard = (d, profile) => {
+    let mode = 'territory';
+    const btnTerritory = h('button', { type: 'button', 'aria-pressed': 'true', text: 'Territory' });
+    const btnWeekly = h('button', { type: 'button', 'aria-pressed': 'false', text: 'This week' });
+    const list = h('ol', { class: 'acct__rows' });
+    const note = empty('No leaderboard data yet.');
+    note.hidden = true;
+    const rowName = (r) => (r.username ? `@${r.username}` : r.display_name || 'Runner');
+    const rowValue = (r) => (mode === 'territory' ? fmtArea(num(r.area_m2)).join(' ') : `${num(r.net_m2) >= 0 ? '+' : '−'}${fmtArea(Math.abs(num(r.net_m2))).join(' ')}`);
+
+    const paint = () => {
+      const rows = (mode === 'territory' ? d.board : d.weekly) || [];
+      list.replaceChildren();
+      note.hidden = !!rows.length;
+      if (!rows.length) return;
+      const top = rows.slice(0, 10);
+      const mineInTop = top.some((r) => r.user_id === profile.id);
+      const mineRow = !mineInTop && rows.find((r) => r.user_id === profile.id);
+      [...top, ...(mineRow ? [mineRow] : [])].forEach((r) => {
+        const mine = r.user_id === profile.id;
+        list.appendChild(h('li', { class: mine ? 'is-mine' : null },
+          h('div', {}, h('b', { text: mine ? 'You' : rowName(r) }), h('span', { text: `Rank #${r.rank}` })),
+          h('div', { class: 'acct__right' }, h('b', { text: rowValue(r) }))));
+      });
+    };
+    const setMode = (m) => {
+      if (m === mode) return;
+      mode = m;
+      btnTerritory.setAttribute('aria-pressed', String(m === 'territory'));
+      btnWeekly.setAttribute('aria-pressed', String(m === 'weekly'));
+      paint();
+    };
+    btnTerritory.addEventListener('click', () => setMode('territory'));
+    btnWeekly.addEventListener('click', () => setMode('weekly'));
+    paint();
+
+    return h('article', { class: 'acct__card' },
+      h('header', { class: 'acct__card-head' }, h('span', { text: 'Leaderboard' }), h('div', { class: 'seg', role: 'group', 'aria-label': 'Leaderboard range' }, btnTerritory, btnWeekly)),
+      list, note);
+  };
+
+  /* ───────────── Clan card: your group's roster, if you're in one ─────────────
+     profiles.active_group_id is the only clan field this page already knows exists (used to tell a clan hex
+     from a rival one). The group/member table and column names below are a best guess at Supabase convention
+     ("groups" / "group_members") — a wrong guess just fails this one query and the card says so. */
+  const buildClanCard = (d, profile, client) => {
+    const panel = h('div', { class: 'acct__clan-body' }, empty('Loading your clan…'));
+    const cardEl = h('article', { class: 'acct__card' }, h('header', { class: 'acct__card-head' }, h('span', { text: 'Clan' })), panel);
+    const gid = profile.active_group_id;
+    if (!gid) { panel.replaceChildren(empty('You’re not in a clan yet. Join one in the app to raid and fortify together.')); return cardEl; }
+    (async () => {
+      try {
+        const [groupR, membersR] = await Promise.allSettled([
+          client.from('groups').select('id,name,tag,description').eq('id', gid).maybeSingle(),
+          client.from('group_members').select('user_id,role,profiles(username,display_name,avatar_url)').eq('group_id', gid).limit(12),
+        ]);
+        const group = groupR.status === 'fulfilled' && !groupR.value.error ? groupR.value.data : null;
+        const members = membersR.status === 'fulfilled' && !membersR.value.error ? membersR.value.data : null;
+        if (!group && !members) throw new Error('clan tables unavailable');
+        const roster = (members || []).map((m) => {
+          const p = m.profiles || {};
+          const av = safeImg(p.avatar_url);
+          const label = p.username ? `@${p.username}` : (p.display_name || 'Member');
+          return h('li', {},
+            h('span', { class: 'acct__clan-avatar' }, av ? h('img', { src: av, alt: '', width: 32, height: 32, referrerpolicy: 'no-referrer' }) : h('b', { text: label.replace('@', '').charAt(0).toUpperCase() || '?' })),
+            h('span', { text: label }),
+            m.user_id === profile.id ? h('small', { text: 'you' }) : m.role ? h('small', { text: m.role }) : null);
+        });
+        panel.replaceChildren(
+          h('div', { class: 'acct__clan-head' },
+            h('h3', { text: (group && (group.name || group.tag)) || 'Your clan' }),
+            group && group.description ? h('p', { text: group.description }) : null),
+          roster.length ? h('ul', { class: 'acct__clan-roster' }, roster) : empty('No members found.'));
+      } catch {
+        panel.replaceChildren(empty('Couldn’t load clan info right now.'));
+      }
+    })();
+    return cardEl;
+  };
 
   /* ───────────── Activity card: a real GitHub-style calendar, month or year, shareable as an image ───────────── */
   const roundRectPath = (ctx, x, y, w, hh, r) => {
@@ -556,6 +638,8 @@
 
     /* activity card: a real GitHub-style calendar (month/year) built from your own runs, shareable as an image */
     const activityCard = buildActivityCard(d, profile);
+    const leaderboardCard = buildLeaderboardCard(d, profile);
+    const clanCard = buildClanCard(d, profile, client);
 
     dropMap();
     const glEl = h('div', { class: 'acct__gl', role: 'region', 'aria-label': 'Interactive map of your hexes' });
@@ -565,11 +649,12 @@
     const hpMsg = h('p', { class: 'acct__hp-msg', hidden: true });
     const hpPlace = h('button', { type: 'button', class: 'btn btn--primary btn--sm acct__hp-btn' }, icon('bounty'), `Place bounty · ${BOUNTY_STEP} coins`);
     const hpCancel = h('button', { type: 'button', class: 'textbtn', hidden: true, text: 'Cancel my bounty' });
+    const hpFortify = h('button', { type: 'button', class: 'btn btn--primary btn--sm acct__hp-btn', hidden: true }, icon('shield'), 'Fortify');
     const hpClose = h('button', { type: 'button', class: 'acct__hp-close', 'aria-label': 'Close hex info', text: '×' });
     const hexPanel = h('div', { class: 'acct__hexpanel', hidden: true },
       h('div', { class: 'acct__hp-head' }, h('div', {}, hpTitle, hpSub), hpClose),
       hpMsg,
-      h('div', { class: 'acct__hp-actions' }, hpPlace, hpCancel));
+      h('div', { class: 'acct__hp-actions' }, hpPlace, hpFortify, hpCancel));
     const mapHost = h('div', { class: 'acct__map' }, h('div', { class: 'acct__mapview' }, glEl, h('div', { class: 'acct__zoom' }, zIn, zOut), hexPanel), note, h('p', { class: 'acct__map-cap' }, capB, capS));
     const btnRun = h('button', { type: 'button', 'aria-pressed': 'true', text: 'Last claim' });
     const btnHere = h('button', { type: 'button', 'aria-pressed': 'false', text: 'My location' });
@@ -577,7 +662,7 @@
       h('header', { class: 'acct__card-head' }, h('span', { text: 'Map' }), h('div', { class: 'seg', role: 'group', 'aria-label': 'Map view' }, btnRun, btnHere)),
       mapHost,
       h('ul', { class: 'legend legend--inline' }, [['mine', 'You'], ['rival', 'Others'], ['clan', 'Clan'], ['neutral', 'Neutral']].map(([c, l]) => h('li', {}, h('i', { class: `sw sw--${c}` }), l))),
-      h('p', { class: 'acct__hp-hint' }, 'Tap a hex that isn’t yours to put a bounty on it.'));
+      h('p', { class: 'acct__hp-hint' }, 'Tap a hex: fortify your own, or put a bounty on someone else’s.'));
 
     const mv = { kind: 'run', title: '', sub: '', mine: 0, apply: null };
     let routeP = null, hexTimer = 0, hexToken = 0, viewToken = 0, mapP = null;
@@ -587,17 +672,27 @@
     let currentFc = EMPTY, selected = null, bountyBusy = false;
     const sessionBounty = new Map();                                 // "col,row" -> coins placed this session (so we can offer Cancel)
     const hexKey = (hc, hr) => `${hc},${hr}`;
-    const ownerLabel = (k) => (k === 'c' ? 'Clan hex' : 'Rival hex');
+    const ownerLabel = (k) => (k === 'm' ? 'Your hex' : k === 'c' ? 'Clan hex' : 'Rival hex');
+    // ceiling isn't in get_hexes_in_bounds, so a mine hex's ceiling is assumed equal to its current level
+    const fortifyCost = (lv) => FORTIFY_COST[Math.min(MAX_LEVEL, lv + 1)];
 
     const renderPanel = () => {
       if (!selected) { hexPanel.hidden = true; return; }
       const { hc, hr, k, lv, b } = selected;
       hpTitle.textContent = ownerLabel(k);
-      hpSub.textContent = `Level ${lv} · ${b > 0 ? `${nf.format(b)} coins riding on it` : 'no bounty yet'}`;
-      const mine = sessionBounty.get(hexKey(hc, hr)) || 0;
-      hpPlace.disabled = bountyBusy || coins < BOUNTY_STEP;
-      hpCancel.hidden = mine <= 0;
-      hpCancel.disabled = bountyBusy;
+      hpPlace.hidden = k === 'm'; hpCancel.hidden = k === 'm'; hpFortify.hidden = k !== 'm';
+      if (k === 'm') {
+        const cost = fortifyCost(lv);
+        hpSub.textContent = `Level ${lv} / ${MAX_LEVEL}`;
+        hpFortify.disabled = bountyBusy || !cost || coins < cost;
+        hpFortify.lastChild.textContent = cost ? `Fortify to level ${lv + 1} · ${cost} coins` : 'Fully fortified';
+      } else {
+        hpSub.textContent = `Level ${lv} · ${b > 0 ? `${nf.format(b)} coins riding on it` : 'no bounty yet'}`;
+        const mine = sessionBounty.get(hexKey(hc, hr)) || 0;
+        hpPlace.disabled = bountyBusy || coins < BOUNTY_STEP;
+        hpCancel.hidden = mine <= 0;
+        hpCancel.disabled = bountyBusy;
+      }
       hexPanel.hidden = false;
     };
     const deselectHex = () => { selected = null; if (activeMap) activeMap.getSource('sel').setData(EMPTY); renderPanel(); };
@@ -614,7 +709,7 @@
       if (activeMap) activeMap.getSource('hexes').setData(currentFc);
     };
     const wireHexClicks = (map) => {
-      const layers = ['hx-o-fill', 'hx-c-fill'];
+      const layers = ['hx-o-fill', 'hx-c-fill', 'hx-m-fill'];
       map.on('click', (e) => {
         const feats = map.queryRenderedFeatures(e.point, { layers });
         if (feats.length) selectHex(feats[0]); else deselectHex();
@@ -648,6 +743,27 @@
         selected.b = Math.max(0, selected.b - mine);
         sessionBounty.delete(hexKey(hc, hr));
         patchFeature(hc, hr, { b: selected.b });
+      } catch (err) { hpMsg.hidden = false; hpMsg.textContent = friendly(err); }
+      finally { bountyBusy = false; renderPanel(); }
+    });
+    const refreshCoins = async () => {                                // fortify cost is server-computed, so re-read the real balance after
+      try {
+        const { data } = await client.from('user_stats').select('coins').eq('user_id', session.user.id).maybeSingle();
+        if (data) setCoins(num(data.coins));
+      } catch { /* chip just keeps its last known value */ }
+    };
+    hpFortify.addEventListener('click', async () => {
+      if (!selected || selected.k !== 'm' || bountyBusy) return;
+      const cost = fortifyCost(selected.lv);
+      if (!cost || coins < cost) return;
+      const { hc, hr } = selected;
+      bountyBusy = true; renderPanel();
+      try {
+        const { error } = await client.rpc('fortify_hex', { p_hex_col: hc, p_hex_row: hr });
+        if (error) throw error;
+        selected.lv = Math.min(MAX_LEVEL, selected.lv + 1);
+        patchFeature(hc, hr, { lv: selected.lv });
+        await refreshCoins();
       } catch (err) { hpMsg.hidden = false; hpMsg.textContent = friendly(err); }
       finally { bountyBusy = false; renderPanel(); }
     });
@@ -767,6 +883,7 @@
       wk ? h('p', { class: 'acct__week', text: `This week’s net area: ${wk.net_m2 >= 0 ? '+' : '−'}${fmtArea(Math.abs(num(wk.net_m2))).join(' ')}  ·  rank #${wk.rank}` }) : null,
       h('div', { class: 'acct__grid' }, mapCard, heroCard),
       activityCard,
+      h('div', { class: 'acct__grid' }, leaderboardCard, clanCard),
       h('div', { class: 'acct__cols' }, runsCard, badgesCard, coinsCard),
       h('p', { class: 'acct__foot', text: 'Run in the app and it all updates here — territory, coins and hero forms are the same data.' }),
     ].filter(Boolean));
@@ -782,6 +899,8 @@
   const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
   const APP_ZOOM = 15, MIN_Z = 14, MAX_Z = 17, LABEL_Z = 17;
   const BOUNTY_STEP = 50;   // coins per tap — mirrors the Compete demo board
+  const MAX_LEVEL = 10;
+  const FORTIFY_COST = { 3: 15, 4: 30, 5: 60, 6: 120, 7: 240, 8: 480, 9: 960, 10: 1920 };   // mirrors the Compete demo board
   let mlPromise = null, activeMap = null;
   const loadMaplibre = () => mlPromise || (mlPromise = new Promise((resolve, reject) => {
     if (window.maplibregl) return resolve(window.maplibregl);
@@ -896,6 +1015,7 @@
 
   /* ───────────── Boot: restore a stored session, or finish an email-confirmation redirect ───────────── */
   const hasStored = () => { try { return !!localStorage.getItem(STORAGE_KEY); } catch { return false; } };
+  if (hasStored()) root.classList.add('is-signed-in');   // guess early so returning players don't see the marketing sections flash in
   const fromEmailLink = /[#&?](access_token|refresh_token|error_description|code)=/.test(location.hash + location.search);
   if (hasStored() || fromEmailLink) {
     const start = () => getClient().then(() => {
