@@ -295,24 +295,50 @@ section[id] { scroll-margin-top: 76px; }
 @media (min-width: 1180px) { .sheetnav { display: flex; } }
 
 /* ───────── Hero ───────── */
-.hero {
-  position: relative; isolation: isolate; overflow-x: clip;
+.hero { position: relative; isolation: isolate; }
+.hero__inner {
+  position: relative; overflow-x: clip;
   display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
   gap: clamp(32px, 5vw, 88px); align-items: center;
   max-width: var(--max); margin-inline: auto;
   padding: calc(72px + clamp(28px, 5vw, 80px)) var(--pad) clamp(64px, 8vw, 112px);
 }
-.hero::before {
+.hero__inner::before {
   content: ""; position: absolute; z-index: -1; pointer-events: none;
   inset: -10% -20% auto auto; width: 75%; aspect-ratio: 1;
   background: radial-gradient(closest-side, rgba(201, 213, 74, 0.065), transparent 70%);
 }
-.hero::after {
+.hero__inner::after {
   content: ""; position: absolute; z-index: -1; pointer-events: none;
   inset: auto auto -25% -25%; width: 70%; aspect-ratio: 1;
   background: radial-gradient(closest-side, rgba(31, 77, 46, 0.34), transparent 70%);
 }
-.hero__copy { display: grid; gap: clamp(24px, 3vw, 38px); justify-items: start; container-type: inline-size; min-width: 0; }
+
+/* Hero terrain: the LIDAR-scan hillside, full-bleed edge-to-edge and slow-drifting behind the cover sheet */
+.hero__terrain { position: absolute; z-index: -2; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); overflow: hidden; pointer-events: none; }
+.hero__terrain-img {
+  position: absolute; inset: -8%; display: block;
+  background: url("../assets/hero-terrain.jpg") center 62% / cover no-repeat;
+  filter: saturate(1.15) brightness(0.74) contrast(1.05);
+  animation: terrainDrift 48s var(--ease-out) infinite alternate;
+  will-change: transform;
+}
+.hero__terrain-scan {
+  position: absolute; inset: -30% -10%; display: block;
+  background: linear-gradient(180deg, transparent 0%, rgba(201, 213, 74, 0.22) 46%, rgba(201, 213, 74, 0.05) 54%, transparent 100%);
+  mix-blend-mode: screen;
+  animation: terrainScan 9s linear infinite;
+}
+@keyframes terrainDrift {
+  0%   { transform: scale(1.08) translate3d(-1.5%, -1%, 0); }
+  50%  { transform: scale(1.14) translate3d(1.5%, 1%, 0); }
+  100% { transform: scale(1.08) translate3d(-0.5%, 2%, 0); }
+}
+@keyframes terrainScan {
+  0%   { transform: translate3d(0, -36%, 0); }
+  100% { transform: translate3d(0, 36%, 0); }
+}
+.hero__copy { display: grid; gap: clamp(24px, 3vw, 38px); justify-items: start; container-type: inline-size; min-width: 0; text-shadow: 0 1px 2px rgba(2, 3, 1, 1), 0 1px 7px rgba(2, 3, 1, 0.85), 0 3px 18px rgba(2, 3, 1, 0.6); }
 .hero__title {
   font-family: var(--f-serif); font-weight: 370; color: var(--text);
   font-size: clamp(3.3rem, 16cqw, 9.4rem); line-height: 0.95; letter-spacing: -0.042em;
@@ -330,7 +356,7 @@ section[id] { scroll-margin-top: 76px; }
 .hero__facts { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 0; width: 100%; max-width: 520px; margin-top: 4px; border-top: 1px solid var(--hair); }
 .hero__facts div { padding: 16px 28px 0 0; display: grid; gap: 6px; }
 .hero__facts div + div { padding-left: 28px; border-left: 1px solid var(--hair); }
-.hero__facts dt { font-size: 10px; color: var(--faint-2); }
+.hero__facts dt { font-size: 10px; color: rgba(236, 234, 214, 0.78); }
 .hero__facts dd { font-family: var(--f-mono); font-size: 12.5px; letter-spacing: 0.02em; color: var(--text); }
 
 /* Map plate */
@@ -724,7 +750,7 @@ section[id] { scroll-margin-top: 76px; }
 }
 @media (max-width: 960px) {
   .nav { display: none; }
-  .hero { grid-template-columns: 1fr; padding-top: calc(72px + 28px); }
+  .hero__inner { grid-template-columns: 1fr; padding-top: calc(72px + 28px); }
   .hero__title { font-size: clamp(3.4rem, 21cqw, 8.6rem); line-height: 0.94; }
   .hero__title .line { white-space: normal; }
   .hero__title .part { display: block; }
